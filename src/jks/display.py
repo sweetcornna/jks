@@ -101,7 +101,7 @@ class NullDisplayController:
     def probe(self) -> None:
         return None
 
-    def read_ack(self) -> None:
+    def read_ack(self, timeout: float = 0.0) -> None:
         return None
 
 

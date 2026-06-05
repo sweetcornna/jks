@@ -120,6 +120,7 @@ class DisplayControllerTests(unittest.TestCase):
         display.probe()
 
         self.assertIsNone(display.read_ack())
+        self.assertIsNone(display.read_ack(timeout=0.01))
 
     def test_display_intent_defaults_optional_fields(self):
         intent = DisplayIntent(emotion="listening", text="READY")
