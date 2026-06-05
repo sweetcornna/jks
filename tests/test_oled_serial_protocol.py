@@ -43,6 +43,14 @@ class OledSerialProtocolTests(unittest.TestCase):
 
         self.assertEqual(frame, b'{"cmd":"clear"}\n')
 
+    def test_probe_helper_encodes_ndjson_command(self):
+        oled_serial = load_oled_serial()
+
+        frame = oled_serial.encode_probe()
+
+        self.assertEqual(oled_serial.probe_command(), {"cmd": "probe"})
+        self.assertEqual(frame, b'{"cmd":"probe"}\n')
+
     def test_each_frame_decodes_as_one_json_object(self):
         oled_serial = load_oled_serial()
 
@@ -71,6 +79,15 @@ class OledSerialProtocolTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertEqual(output.getvalue(), b'{"cmd":"text","text":"Status ready"}\n')
 
+    def test_cli_writes_probe_command_to_binary_output(self):
+        oled_serial = load_oled_serial()
+        output = io.BytesIO()
+
+        result = oled_serial.main(["probe"], output=output)
+
+        self.assertEqual(result, 0)
+        self.assertEqual(output.getvalue(), b'{"cmd":"probe"}\n')
+
     def test_cli_can_write_command_to_device_path(self):
         oled_serial = load_oled_serial()
         fd, path = tempfile.mkstemp()
@@ -84,6 +101,14 @@ class OledSerialProtocolTests(unittest.TestCase):
                 self.assertEqual(output.read(), b'{"cmd":"emotion","name":"focused"}\n')
         finally:
             os.unlink(path)
+
+    def test_high_baud_rates_without_termios_support_are_not_silently_remapped(self):
+        oled_serial = load_oled_serial()
+
+        for baud in (230400, 460800, 921600):
+            with self.subTest(baud=baud):
+                if not hasattr(oled_serial.termios, f"B{baud}"):
+                    self.assertNotIn(baud, oled_serial._BAUD_RATES)
 
 
 if __name__ == "__main__":

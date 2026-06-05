@@ -18,10 +18,12 @@ _BAUD_RATES = {
     38400: termios.B38400,
     57600: termios.B57600,
     115200: termios.B115200,
-    230400: getattr(termios, "B230400", termios.B115200),
-    460800: getattr(termios, "B460800", termios.B115200),
-    921600: getattr(termios, "B921600", termios.B115200),
 }
+
+for _baud in (230400, 460800, 921600):
+    _termios_rate = getattr(termios, f"B{_baud}", None)
+    if _termios_rate is not None:
+        _BAUD_RATES[_baud] = _termios_rate
 
 
 def encode_command(command: Mapping[str, object]) -> bytes:
@@ -42,6 +44,10 @@ def clear_command() -> dict[str, str]:
     return {"cmd": "clear"}
 
 
+def probe_command() -> dict[str, str]:
+    return {"cmd": "probe"}
+
+
 def encode_text(text: str) -> bytes:
     return encode_command(text_command(text))
 
@@ -52,6 +58,10 @@ def encode_emotion(emotion: str) -> bytes:
 
 def encode_clear() -> bytes:
     return encode_command(clear_command())
+
+
+def encode_probe() -> bytes:
+    return encode_command(probe_command())
 
 
 def _configure_serial_fd(fd: int, baud: int) -> None:
@@ -114,6 +124,7 @@ def build_parser() -> argparse.ArgumentParser:
     emotion_parser.add_argument("emotion")
 
     subparsers.add_parser("clear", help="Clear the OLED.")
+    subparsers.add_parser("probe", help="Probe the OLED firmware.")
     return parser
 
 
@@ -124,6 +135,8 @@ def frame_from_args(args: argparse.Namespace) -> bytes:
         return encode_emotion(args.emotion)
     if args.command == "clear":
         return encode_clear()
+    if args.command == "probe":
+        return encode_probe()
     raise ValueError(f"unknown command: {args.command}")
 
 
