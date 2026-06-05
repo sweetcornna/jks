@@ -1,0 +1,14 @@
+.DS_Store
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.superpowers/
+*.log
+.env
+.env.*
+!.env.example
+hardware/*.bin
+firmware/micropython/*.bin
+firmware/oled-controller/.pio/
