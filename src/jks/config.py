@@ -95,7 +95,10 @@ def load_config(env_file: Optional[Union[os.PathLike[str], str]] = ".env") -> Ap
         tts_provider=settings.get("JKS_TTS_PROVIDER", ""),
         tts_endpoint=settings.get("JKS_TTS_ENDPOINT", ""),
         tts_token=settings.get("JKS_TTS_TOKEN", ""),
-        fish_api_key=settings.get("JKS_FISH_API_KEY", settings.get("FISH_API_KEY", "")),
+        fish_api_key=settings.get(
+            "JKS_FISH_API_KEY",
+            settings.get("FISH_API_KEY", settings.get("FISH_AUDIO_API_KEY", "")),
+        ),
         fish_tts_model=settings.get("JKS_FISH_TTS_MODEL", "s2-pro"),
         tts_voice=settings.get("JKS_TTS_VOICE", "default"),
         oled_port=settings.get("JKS_OLED_PORT", "/dev/cu.usbmodem5B900048301"),

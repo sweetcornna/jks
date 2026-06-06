@@ -37,6 +37,8 @@ JKS_TTS_VOICE="default"
 ```
 
 Use a Fish voice/reference id in `JKS_TTS_VOICE` if a specific voice is needed.
+`FISH_AUDIO_API_KEY` and `FISH_API_KEY` are accepted aliases for existing Fish
+Audio configs.
 
 ## Preflight
 
@@ -45,7 +47,7 @@ uv run python -m tools.jks_smoke
 uv run python -m tools.jks_agent_probe
 uv run python -m tools.jks_config_check
 uv run python -m tools.jks_contract_probe
-uv run python -m tools.jks_turn_probe --audio /path/to/input.wav --play
+uv run python -m tools.jks_turn_probe --audio /path/to/input.wav --display --require-display-ack --display-ack-timeout 6 --play
 uv run python -m tools.oled_smoke
 ```
 
@@ -56,6 +58,7 @@ Expected:
 - `jks_config_check`: `ok:true`
 - `jks_contract_probe`: `ok:true`
 - `jks_turn_probe`: `server_events:["stt","chat","tts"]`
+- `jks_turn_probe`: `display_events` includes listening/transcribing/thinking/speaking/agent and no missing ACKs
 - `oled_smoke`: `ok:true`
 
 `jks_turn_probe` prints text lengths by default, not full transcripts. Add

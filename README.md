@@ -108,8 +108,10 @@ JKS_FISH_TTS_MODEL="s2-pro"
 JKS_TTS_VOICE="default"
 ```
 
-`JKS_TTS_VOICE` may be a Fish Audio `reference_id` / voice model id. When it is
-`default`, JKS omits `reference_id`. Fish ASR uses `POST
+`FISH_AUDIO_API_KEY` and `FISH_API_KEY` are also accepted as aliases when an
+existing Fish config already uses those names. `JKS_TTS_VOICE` may be a Fish
+Audio `reference_id` / voice model id. When it is `default`, JKS omits
+`reference_id`. Fish ASR uses `POST
 https://api.fish.audio/v1/asr` with bearer auth and an `audio` form field. Fish
 TTS uses `POST https://api.fish.audio/v1/tts`, `model:s2-pro`, and writes mp3
 audio for playback.
@@ -160,6 +162,18 @@ Run a chained no-GUI/no-mic turn probe with a real audio file:
 
 ```bash
 uv run python -m tools.jks_turn_probe --audio /path/to/input.wav
+```
+
+Add OLED output to the same probe when the board is connected:
+
+```bash
+uv run python -m tools.jks_turn_probe --audio /path/to/input.wav --display --require-display-ack
+```
+
+For long OLED animations, increase the ACK window:
+
+```bash
+uv run python -m tools.jks_turn_probe --audio /path/to/input.wav --display --require-display-ack --display-ack-timeout 6
 ```
 
 By default, the turn probe prints text lengths instead of full transcripts so

@@ -137,6 +137,12 @@ class ConfigTests(unittest.TestCase):
 
         self.assertEqual(config.fish_api_key, "fish-secret")
 
+    def test_fish_api_key_falls_back_to_fish_audio_env_name(self):
+        with patch.dict(os.environ, {"FISH_AUDIO_API_KEY": "fish-audio-secret"}, clear=True):
+            config = load_config(env_file=None)
+
+        self.assertEqual(config.fish_api_key, "fish-audio-secret")
+
     def test_invalid_baud_fails_cleanly(self):
         with patch.dict(os.environ, {"JKS_OLED_BAUD": "fast"}, clear=True):
             with self.assertRaises(ValueError):

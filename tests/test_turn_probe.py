@@ -31,6 +31,33 @@ def write_silent_wav(path: Path) -> None:
         wav.writeframes(b"\x00\x00" * 400)
 
 
+class FakeDisplayPort:
+    def __init__(self, ack_lines=None):
+        self.ack_lines = list(ack_lines or [])
+        self.frames = []
+        self.flushed = False
+        self.closed = False
+
+    def write(self, data):
+        self.frames.append(json.loads(data.decode("utf-8")))
+        return len(data)
+
+    def flush(self):
+        self.flushed = True
+
+    def readline(self):
+        if not self.ack_lines:
+            return b""
+        return self.ack_lines.pop(0)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        self.closed = True
+        return False
+
+
 class TurnProbeCliTests(unittest.TestCase):
     def test_missing_audio_argument_returns_error_without_config_or_network_probe(self):
         stdout = io.StringIO()
@@ -179,6 +206,134 @@ class TurnProbeCliTests(unittest.TestCase):
         self.assertEqual(payload["checks"]["playback"], {"played": True})
         self.assertEqual(len(played), 1)
         self.assertTrue(played[0].exists())
+
+    def test_display_flag_writes_turn_states_and_final_intent_with_required_acks(self):
+        server = start_fake_services()
+        stdout = io.StringIO()
+        port = FakeDisplayPort(
+            [
+                b'{"status":"ok","detail":"listening"}\n',
+                b'{"status":"ok","detail":"thinking"}\n',
+                b'{"status":"ok","detail":"thinking"}\n',
+                b'{"status":"ok","detail":"speaking"}\n',
+                b'{"status":"ok","detail":"happy"}\n',
+            ]
+        )
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                audio_path = Path(temp_dir) / "input.wav"
+                write_silent_wav(audio_path)
+                env = {
+                    "JKS_AGENT_ENDPOINT": server.base_url + "/chat",
+                    "JKS_STT_ENDPOINT": server.base_url + "/stt",
+                    "JKS_TTS_ENDPOINT": server.base_url + "/tts",
+                    "JKS_OLED_PORT": "/dev/cu.test",
+                }
+
+                with clean_cwd(), patch.dict(os.environ, env, clear=True):
+                    with patch("tools.jks_turn_probe.open_serial_output", return_value=port, create=True):
+                        exit_code = main(
+                            ["--audio", str(audio_path), "--display", "--require-display-ack"],
+                            stdout=stdout,
+                        )
+        finally:
+            server.stop()
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["server_events"], ["stt", "chat", "tts"])
+        self.assertEqual(
+            [frame["name"] for frame in port.frames],
+            ["listening", "thinking", "thinking", "speaking", "happy"],
+        )
+        self.assertEqual([frame["text"] for frame in port.frames], ["HEAR", "TEXT", "WAIT", "TALK", "DONE"])
+        self.assertEqual(
+            [event["stage"] for event in payload["display_events"]],
+            ["listening", "transcribing", "thinking", "speaking", "agent"],
+        )
+        self.assertEqual(payload["checks"]["display"]["ack_count"], 5)
+        self.assertEqual(payload["checks"]["display"]["missing"], [])
+
+    def test_required_display_ack_failure_stops_before_network_turn(self):
+        server = start_fake_services()
+        stdout = io.StringIO()
+        port = FakeDisplayPort()
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                audio_path = Path(temp_dir) / "input.wav"
+                write_silent_wav(audio_path)
+                env = {
+                    "JKS_AGENT_ENDPOINT": server.base_url + "/chat",
+                    "JKS_STT_ENDPOINT": server.base_url + "/stt",
+                    "JKS_TTS_ENDPOINT": server.base_url + "/tts",
+                    "JKS_OLED_PORT": "/dev/cu.test",
+                }
+
+                with clean_cwd(), patch.dict(os.environ, env, clear=True):
+                    with patch("tools.jks_turn_probe.open_serial_output", return_value=port, create=True):
+                        exit_code = main(
+                            ["--audio", str(audio_path), "--display", "--require-display-ack"],
+                            stdout=stdout,
+                        )
+        finally:
+            server.stop()
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 1)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["server_events"], [])
+        self.assertEqual([event["stage"] for event in payload["display_events"]], ["listening"])
+        self.assertEqual(payload["errors"][0]["error"], "display_ack")
+        self.assertEqual([event["kind"] for event in server.events], [])
+
+    def test_display_ack_timeout_argument_is_used_for_required_acks(self):
+        server = start_fake_services()
+        stdout = io.StringIO()
+        timeouts = []
+
+        class RecordingDisplay:
+            def __init__(self, output, ack_input=None):
+                self.output = output
+
+            def show(self, intent):
+                self.output.frames.append({"name": intent.emotion, "text": intent.text})
+
+            def read_ack(self, timeout=0.0):
+                timeouts.append(timeout)
+                return {"status": "ok", "detail": "ok"}
+
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                audio_path = Path(temp_dir) / "input.wav"
+                write_silent_wav(audio_path)
+                env = {
+                    "JKS_AGENT_ENDPOINT": server.base_url + "/chat",
+                    "JKS_STT_ENDPOINT": server.base_url + "/stt",
+                    "JKS_TTS_ENDPOINT": server.base_url + "/tts",
+                    "JKS_OLED_PORT": "/dev/cu.test",
+                }
+
+                with clean_cwd(), patch.dict(os.environ, env, clear=True):
+                    with patch("tools.jks_turn_probe.open_serial_output", return_value=FakeDisplayPort(), create=True):
+                        with patch("tools.jks_turn_probe.DisplayController", RecordingDisplay):
+                            exit_code = main(
+                                [
+                                    "--audio",
+                                    str(audio_path),
+                                    "--require-display-ack",
+                                    "--display-ack-timeout",
+                                    "6.5",
+                                ],
+                                stdout=stdout,
+                            )
+        finally:
+            server.stop()
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(timeouts, [6.5, 6.5, 6.5, 6.5, 6.5])
 
 
 if __name__ == "__main__":
