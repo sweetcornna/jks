@@ -105,6 +105,13 @@ mpremote connect /dev/cu.usbmodem5B900048301 fs cp firmware/micropython/main.py 
 mpremote connect /dev/cu.usbmodem5B900048301 reset
 ```
 
+If `mpremote` is not on `PATH` on this Mac, use the verified local binary:
+
+```bash
+/tmp/jks-pio/bin/mpremote connect /dev/cu.usbmodem5B900048301 fs cp firmware/micropython/main.py :main.py
+/tmp/jks-pio/bin/mpremote connect /dev/cu.usbmodem5B900048301 reset
+```
+
 The OLED protocol is newline-delimited JSON. Example:
 
 ```json
@@ -120,3 +127,4 @@ neutral happy thinking speaking listening surprised sleepy sad angry error
 ## Documentation
 
 See [PROJECT_PLAN.md](PROJECT_PLAN.md) for the Chinese project plan and phased roadmap.
+Use [docs/MANUAL_ACCEPTANCE.md](docs/MANUAL_ACCEPTANCE.md) for the real-service and GUI/OLED acceptance checklist.

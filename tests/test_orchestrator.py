@@ -6,7 +6,7 @@ import unittest
 from jks.agent import AgentReply, parse_agent_reply
 from jks.display import DisplayIntent
 from jks.expression import ExpressionEngine, TurnState
-from jks.orchestrator import ConversationOrchestrator
+from jks.orchestrator import ConversationOrchestrator, TurnFailure
 
 
 class FakeRecorder:
@@ -367,6 +367,40 @@ class OrchestratorTests(unittest.TestCase):
 
                 self.assertEqual(display.intents[-1], DisplayIntent(emotion="error", text="OOPS"))
 
+    def test_stt_failure_preserves_recorded_audio_path_for_debugging(self):
+        orchestrator = ConversationOrchestrator(
+            recorder=FakeRecorder(),
+            speech=FakeSpeech(fail_transcribe=True),
+            agent=FakeAgent(),
+            display=FakeDisplay(),
+            player=FakePlayer(),
+            voice="warm",
+        )
+
+        with self.assertRaisesRegex(TurnFailure, "stt failed") as caught:
+            orchestrator.run_voice_turn()
+
+        self.assertEqual(caught.exception.audio_path, Path("/tmp/jks-test-input.wav"))
+        self.assertEqual(caught.exception.user_text, "")
+        self.assertEqual(orchestrator.state, TurnState.IDLE)
+
+    def test_agent_failure_preserves_transcribed_user_text_for_resend(self):
+        orchestrator = ConversationOrchestrator(
+            recorder=FakeRecorder(),
+            speech=FakeSpeech(user_text="hello"),
+            agent=FakeAgent(fail=True),
+            display=FakeDisplay(),
+            player=FakePlayer(),
+            voice="warm",
+        )
+
+        with self.assertRaisesRegex(TurnFailure, "agent failed") as caught:
+            orchestrator.run_voice_turn()
+
+        self.assertEqual(caught.exception.audio_path, Path("/tmp/jks-test-input.wav"))
+        self.assertEqual(caught.exception.user_text, "hello")
+        self.assertEqual(orchestrator.state, TurnState.IDLE)
+
     def test_tts_and_player_failures_preserve_agent_text_as_silent_fallback(self):
         cases = [
             {
@@ -401,9 +435,9 @@ class OrchestratorTests(unittest.TestCase):
 
                 self.assertEqual(result.agent_text, "reply")
                 self.assertEqual(result.audio_error, case["expected_error"])
+                self.assertEqual(result.emotion, "error")
                 self.assertEqual(case["player"].played, case["expected_played"])
-                self.assertEqual(display.intents[-1], DisplayIntent(emotion="happy", text="DONE"))
-                self.assertNotIn(DisplayIntent(emotion="error", text="OOPS"), display.intents)
+                self.assertEqual(display.intents[-1], DisplayIntent(emotion="error", text="OOPS"))
                 self.assertEqual(orchestrator.state, TurnState.IDLE)
 
     def test_display_failures_do_not_interrupt_successful_voice_turn(self):
@@ -422,6 +456,23 @@ class OrchestratorTests(unittest.TestCase):
         self.assertEqual(result.user_text, "hello")
         self.assertEqual(result.agent_text, "reply")
         self.assertEqual(player.played, [Path("/tmp/jks-test-reply.wav")])
+
+    def test_runtime_display_failure_reports_degraded_status_once(self):
+        display_errors = []
+        orchestrator = ConversationOrchestrator(
+            recorder=FakeRecorder(),
+            speech=FakeSpeech(user_text="hello"),
+            agent=FakeAgent(reply=AgentReply(text="reply", emotion="happy")),
+            display=FailingDisplay(),
+            player=FakePlayer(),
+            voice="warm",
+            display_error_callback=display_errors.append,
+        )
+
+        result = orchestrator.run_voice_turn()
+
+        self.assertEqual(result.agent_text, "reply")
+        self.assertEqual(display_errors, ["OLED update failed: oled disconnected"])
 
     def test_error_display_failure_preserves_original_exception(self):
         orchestrator = ConversationOrchestrator(

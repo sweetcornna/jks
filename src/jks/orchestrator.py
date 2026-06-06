@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Optional
 from uuid import uuid4
 
@@ -16,6 +17,13 @@ class TurnResult:
     audio_error: str = ""
 
 
+class TurnFailure(RuntimeError):
+    def __init__(self, message: str, user_text: str = "", audio_path: object = ""):
+        super().__init__(message)
+        self.user_text = user_text
+        self.audio_path = Path(audio_path) if audio_path else None
+
+
 class ConversationOrchestrator:
     def __init__(
         self,
@@ -26,6 +34,7 @@ class ConversationOrchestrator:
         player,
         voice: str,
         status_callback: Optional[Callable[[TurnState], None]] = None,
+        display_error_callback: Optional[Callable[[str], None]] = None,
     ):
         self.recorder = recorder
         self.speech = speech
@@ -34,6 +43,8 @@ class ConversationOrchestrator:
         self.player = player
         self.voice = voice
         self.status_callback = status_callback
+        self.display_error_callback = display_error_callback
+        self._display_error_reported = False
         self.expression = ExpressionEngine()
         self.conversation_id = str(uuid4())
         self.state = TurnState.IDLE
@@ -72,10 +83,16 @@ class ConversationOrchestrator:
 
     def _process_audio(self, audio_path) -> TurnResult:
         self._set_state(TurnState.TRANSCRIBING)
-        user_text = self.speech.transcribe(audio_path)
+        try:
+            user_text = self.speech.transcribe(audio_path)
+        except Exception as exc:
+            raise TurnFailure(str(exc), audio_path=audio_path) from exc
 
         self._set_state(TurnState.THINKING)
-        reply: AgentReply = self.agent.send_message(user_text, self.conversation_id)
+        try:
+            reply: AgentReply = self.agent.send_message(user_text, self.conversation_id)
+        except Exception as exc:
+            raise TurnFailure(str(exc), user_text=user_text, audio_path=audio_path) from exc
 
         self._set_state(TurnState.SPEAKING)
         audio_error = ""
@@ -85,14 +102,17 @@ class ConversationOrchestrator:
         except Exception as exc:
             audio_error = str(exc)
 
-        final_intent = self.expression.intent_from_agent(
-            {
-                "emotion": reply.emotion or "happy",
-                "display_text": reply.display_text if reply.display_text is not None else "DONE",
-                "duration_ms": reply.duration_ms,
-                "intensity": reply.intensity,
-            }
-        )
+        if audio_error:
+            final_intent = self.expression.intent_for_state(TurnState.ERROR)
+        else:
+            final_intent = self.expression.intent_from_agent(
+                {
+                    "emotion": reply.emotion or "happy",
+                    "display_text": reply.display_text if reply.display_text is not None else "DONE",
+                    "duration_ms": reply.duration_ms,
+                    "intensity": reply.intensity,
+                }
+            )
         self._show_intent(final_intent)
         self.state = TurnState.IDLE
         return TurnResult(
@@ -117,7 +137,8 @@ class ConversationOrchestrator:
     def _show_intent(self, intent) -> None:
         try:
             self.display.show(intent)
-        except Exception:
+        except Exception as exc:
+            self._emit_display_error(f"OLED update failed: {exc}")
             return None
 
     def _emit_status(self, state: TurnState) -> None:
@@ -125,5 +146,14 @@ class ConversationOrchestrator:
             return None
         try:
             self.status_callback(state)
+        except Exception:
+            return None
+
+    def _emit_display_error(self, message: str) -> None:
+        if self.display_error_callback is None or self._display_error_reported:
+            return None
+        self._display_error_reported = True
+        try:
+            self.display_error_callback(message)
         except Exception:
             return None

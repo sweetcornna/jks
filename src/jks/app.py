@@ -25,6 +25,8 @@ def build_orchestrator(
     recorder=None,
     player=None,
     status_callback: Optional[Callable[[TurnState], None]] = None,
+    display_status_callback: Optional[Callable[[str], None]] = None,
+    display_error_callback: Optional[Callable[[str], None]] = None,
 ) -> ConversationOrchestrator:
     output_dir = Path(output_dir) if output_dir is not None else Path(tempfile.gettempdir())
 
@@ -32,6 +34,10 @@ def build_orchestrator(
         serial_output = open_serial(config.oled_port, config.oled_baud)
         display = DisplayController(serial_output)
     except Exception:
+        if display_status_callback is not None:
+            display_status_callback(
+                f"OLED unavailable on {config.oled_port}; reconnect display and restart if needed."
+            )
         display = NullDisplayController()
 
     if config.stt_endpoint and config.tts_endpoint:
@@ -49,6 +55,7 @@ def build_orchestrator(
         player=player or AudioPlayer(),
         voice=config.tts_voice,
         status_callback=status_callback,
+        display_error_callback=display_error_callback,
     )
 
 
@@ -67,15 +74,20 @@ class JksApp:
         self.root = root
         self.root.title("JKS Voice Agent")
         self.status = tk.StringVar(value="Ready")
+        self.device_status = tk.StringVar(value="OLED ready")
         self.transcript = tk.StringVar(value="")
         self.orchestrator = orchestrator or build_orchestrator(
-            load_config(), status_callback=self._show_turn_state
+            load_config(),
+            status_callback=self._show_turn_state,
+            display_status_callback=self._show_display_status,
+            display_error_callback=self._show_display_status,
         )
         self._recording = False
 
         self.button = ttk.Button(root, text="Speak", command=self.start_turn)
         self.button.pack(padx=16, pady=12)
         ttk.Label(root, textvariable=self.status).pack(padx=16, pady=4)
+        ttk.Label(root, textvariable=self.device_status, wraplength=420).pack(padx=16, pady=4)
         ttk.Label(root, textvariable=self.transcript, wraplength=420).pack(padx=16, pady=12)
 
     def start_turn(self) -> None:
@@ -127,11 +139,23 @@ class JksApp:
     def _finish_error(self, exc: Exception) -> None:
         self._recording = False
         self.status.set(f"Error: {exc}")
+        partial_lines = []
+        user_text = getattr(exc, "user_text", "")
+        audio_path = getattr(exc, "audio_path", None)
+        if user_text:
+            partial_lines.append(f"You: {user_text}")
+        if audio_path:
+            partial_lines.append(f"Audio: {audio_path}")
+        if partial_lines:
+            self.transcript.set("\n".join(partial_lines))
         self.button.configure(text="Speak", state="normal")
 
     def _show_turn_state(self, state: TurnState) -> None:
         label = STATE_LABELS.get(state, str(state))
         self.root.after(0, lambda label=label: self.status.set(label))
+
+    def _show_display_status(self, message: str) -> None:
+        self.root.after(0, lambda message=message: self.device_status.set(message))
 
 
 def _print_help(stdout: TextIO) -> None:

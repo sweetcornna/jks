@@ -157,6 +157,25 @@ class AppTests(unittest.TestCase):
         self.assertIsInstance(orchestrator.display, NullDisplayController)
         self.assertIsInstance(orchestrator.speech, FakeSpeechClient)
 
+    def test_orchestrator_builder_reports_serial_degraded_status(self):
+        from jks import app
+        from jks.display import NullDisplayController
+
+        degraded_messages = []
+        with tempfile.TemporaryDirectory() as tmp:
+            orchestrator = app.build_orchestrator(
+                sample_config(oled_port="/dev/cu.missing"),
+                open_serial=lambda path, baud: (_ for _ in ()).throw(OSError("missing oled")),
+                output_dir=Path(tmp),
+                display_status_callback=degraded_messages.append,
+            )
+
+        self.assertIsInstance(orchestrator.display, NullDisplayController)
+        self.assertEqual(
+            degraded_messages,
+            ["OLED unavailable on /dev/cu.missing; reconnect display and restart if needed."],
+        )
+
     def test_orchestrator_builder_rejects_partial_speech_config(self):
         from jks import app
 
@@ -233,7 +252,12 @@ class AppTests(unittest.TestCase):
             result=TurnResult(user_text="hello", agent_text="reply", emotion="happy")
         )
 
-        def fake_build_orchestrator(config, status_callback=None):
+        def fake_build_orchestrator(
+            config,
+            status_callback=None,
+            display_status_callback=None,
+            display_error_callback=None,
+        ):
             captured["status_callback"] = status_callback
             return orchestrator
 
@@ -253,6 +277,72 @@ class AppTests(unittest.TestCase):
         self.assertEqual(ui.status.get(), "Thinking")
         captured["status_callback"](TurnState.SPEAKING)
         self.assertEqual(ui.status.get(), "Speaking")
+
+    def test_ui_shows_serial_degraded_prompt_from_builder(self):
+        from jks import app
+        from jks.orchestrator import TurnResult
+
+        root = FakeRoot()
+        orchestrator = FakeOrchestrator(
+            result=TurnResult(user_text="hello", agent_text="reply", emotion="happy")
+        )
+
+        def fake_build_orchestrator(
+            config,
+            status_callback=None,
+            display_status_callback=None,
+            display_error_callback=None,
+        ):
+            display_status_callback(
+                "OLED unavailable on /dev/cu.missing; reconnect display and restart if needed."
+            )
+            return orchestrator
+
+        with patch.object(app, "load_config", return_value=sample_config()), patch.object(
+            app, "build_orchestrator", fake_build_orchestrator
+        ), patch.object(app.tk, "StringVar", FakeStringVar), patch.object(
+            app.ttk, "Button", FakeButton
+        ), patch.object(app.ttk, "Label", FakeLabel), patch.object(
+            app.threading, "Thread", ImmediateThread
+        ):
+            ui = app.JksApp(root)
+
+        self.assertEqual(
+            ui.device_status.get(),
+            "OLED unavailable on /dev/cu.missing; reconnect display and restart if needed.",
+        )
+
+    def test_ui_shows_runtime_display_failure_from_orchestrator(self):
+        from jks import app
+        from jks.orchestrator import TurnResult
+
+        root = FakeRoot()
+        captured = {}
+        orchestrator = FakeOrchestrator(
+            result=TurnResult(user_text="hello", agent_text="reply", emotion="happy")
+        )
+
+        def fake_build_orchestrator(
+            config,
+            status_callback=None,
+            display_status_callback=None,
+            display_error_callback=None,
+        ):
+            captured["display_error_callback"] = display_error_callback
+            return orchestrator
+
+        with patch.object(app, "load_config", return_value=sample_config()), patch.object(
+            app, "build_orchestrator", fake_build_orchestrator
+        ), patch.object(app.tk, "StringVar", FakeStringVar), patch.object(
+            app.ttk, "Button", FakeButton
+        ), patch.object(app.ttk, "Label", FakeLabel), patch.object(
+            app.threading, "Thread", ImmediateThread
+        ):
+            ui = app.JksApp(root)
+
+        self.assertIsNotNone(captured["display_error_callback"])
+        captured["display_error_callback"]("OLED update failed: oled disconnected")
+        self.assertEqual(ui.device_status.get(), "OLED update failed: oled disconnected")
 
     def test_ui_first_click_starts_recording_and_waits_for_stop_click(self):
         from jks import app
@@ -295,6 +385,33 @@ class AppTests(unittest.TestCase):
         self.assertIn("agent missing", ui.status.get())
         self.assertEqual(ui.button.options["state"], "normal")
         self.assertEqual(ui.button.text, "Speak")
+
+    def test_ui_error_turn_preserves_partial_turn_context(self):
+        from jks import app
+        from jks.orchestrator import TurnFailure
+
+        root = FakeRoot()
+        orchestrator = FakeOrchestrator(
+            exc=TurnFailure(
+                "agent failed",
+                user_text="hello",
+                audio_path=Path("/tmp/jks-test-input.wav"),
+            )
+        )
+
+        with patch.object(app.tk, "StringVar", FakeStringVar), patch.object(
+            app.ttk, "Button", FakeButton
+        ), patch.object(app.ttk, "Label", FakeLabel), patch.object(
+            app.threading, "Thread", ImmediateThread
+        ):
+            ui = app.JksApp(root, orchestrator=orchestrator)
+            ui.start_turn()
+            ui.start_turn()
+
+        self.assertIn("agent failed", ui.status.get())
+        self.assertIn("You: hello", ui.transcript.get())
+        self.assertIn("Audio: /tmp/jks-test-input.wav", ui.transcript.get())
+        self.assertEqual(ui.button.options["state"], "normal")
 
     def test_ui_start_recording_error_restores_button(self):
         from jks import app

@@ -77,7 +77,7 @@ Records local microphone audio when the user clicks or presses the voice control
 Responsibilities:
 
 - Start recording on user action.
-- Stop recording on second action or silence timeout.
+- Stop recording on second user action for MVP.
 - Save audio in a format accepted by the STT provider.
 - Return a local audio path or byte buffer to `ConversationOrchestrator`.
 
@@ -227,7 +227,7 @@ One complete voice turn:
 1. User clicks the voice button.
 2. `ConversationOrchestrator` sets OLED to `listening`.
 3. `AudioInput` records microphone input.
-4. Recording ends by second click or silence timeout.
+4. Recording ends by second click.
 5. `ConversationOrchestrator` sets OLED to `thinking`.
 6. `SpeechClient.transcribe()` returns user text.
 7. `AgentClient.send_message()` sends the text to the remote agent.
@@ -256,7 +256,7 @@ Agent timeout:
 
 - OLED transitions from `thinking` to `error`.
 - Preserve transcribed user text.
-- Allow resend.
+- Show the preserved text in the local UI so the user can retry without losing context.
 
 TTS failure:
 
@@ -284,22 +284,21 @@ Malformed agent display intent:
 Existing tests:
 
 ```bash
-python3 -m unittest discover -s tests -v
+uv run python -m unittest discover -s tests -v
 ```
 
 Current expected result:
 
 ```text
-Ran 7 tests
 OK
 ```
 
 Manual OLED verification:
 
 ```bash
-python3 -m tools.oled_serial --port /dev/cu.usbmodem5B900048301 emotion happy
-python3 -m tools.oled_serial --port /dev/cu.usbmodem5B900048301 text "JKS READY"
-python3 -m tools.oled_serial --port /dev/cu.usbmodem5B900048301 clear
+uv run python -m tools.oled_serial --port /dev/cu.usbmodem5B900048301 emotion happy
+uv run python -m tools.oled_serial --port /dev/cu.usbmodem5B900048301 text "JKS READY"
+uv run python -m tools.oled_serial --port /dev/cu.usbmodem5B900048301 clear
 ```
 
 Firmware verification:
