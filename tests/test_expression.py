@@ -104,6 +104,26 @@ class ExpressionTests(unittest.TestCase):
                 self.assertTrue(all(frame.emotion == emotion for frame in frames))
                 self.assertTrue(all(0 < frame.duration_ms <= 5000 for frame in frames))
 
+    def test_all_base_expressions_have_visible_animation_frames(self):
+        engine = ExpressionEngine()
+
+        for emotion in ALLOWED_EMOTIONS:
+            with self.subTest(emotion=emotion):
+                frames = engine.frames_for(emotion)
+
+                self.assertGreaterEqual(len(frames), 2)
+                self.assertTrue(all(frame.text for frame in frames))
+                self.assertTrue(all(0 < frame.duration_ms <= 5000 for frame in frames))
+
+    def test_unknown_expression_falls_back_to_visible_neutral_frames(self):
+        engine = ExpressionEngine()
+
+        frames = engine.frames_for("run_shell")
+
+        self.assertGreaterEqual(len(frames), 2)
+        self.assertTrue(all(frame.emotion == "neutral" for frame in frames))
+        self.assertTrue(all(frame.text for frame in frames))
+
     def test_idle_neutral_animation_has_blink_frames(self):
         engine = ExpressionEngine()
 

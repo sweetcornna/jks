@@ -37,9 +37,27 @@ class DisplayControllerTests(unittest.TestCase):
 
         self.assertEqual(
             port.getvalue(),
-            b'{"cmd":"emotion","name":"thinking","text":"WAIT"}\n',
+            b'{"cmd":"emotion","name":"thinking","text":"WAIT","duration_ms":1200,"intensity":"normal"}\n',
         )
         self.assertTrue(port.flushed)
+
+    def test_sends_full_display_intent_fields(self):
+        port = FakePort()
+        display = DisplayController(port)
+
+        display.show(DisplayIntent(emotion="surprised", text="WOW", duration_ms=2400, intensity="high"))
+
+        payload = json.loads(port.getvalue().decode("utf-8"))
+        self.assertEqual(
+            payload,
+            {
+                "cmd": "emotion",
+                "name": "surprised",
+                "text": "WOW",
+                "duration_ms": 2400,
+                "intensity": "high",
+            },
+        )
 
     def test_allowed_emotions_include_required_whitelist(self):
         self.assertGreaterEqual(
@@ -65,7 +83,16 @@ class DisplayControllerTests(unittest.TestCase):
         display.show(DisplayIntent(emotion="run_shell", text="BAD"))
 
         payload = json.loads(port.getvalue().decode("utf-8"))
-        self.assertEqual(payload, {"cmd": "emotion", "name": "neutral", "text": "BAD"})
+        self.assertEqual(
+            payload,
+            {
+                "cmd": "emotion",
+                "name": "neutral",
+                "text": "BAD",
+                "duration_ms": 1200,
+                "intensity": "normal",
+            },
+        )
 
     def test_empty_text_falls_back_to_selected_emotion_label(self):
         port = FakePort()
@@ -75,8 +102,10 @@ class DisplayControllerTests(unittest.TestCase):
         display.show(DisplayIntent(emotion="run_shell"))
 
         frames = [json.loads(line) for line in port.getvalue().decode("utf-8").splitlines()]
-        self.assertEqual(frames[0], {"cmd": "emotion", "name": "thinking", "text": "THINKING"})
-        self.assertEqual(frames[1], {"cmd": "emotion", "name": "neutral", "text": "NEUTRAL"})
+        self.assertEqual(frames[0]["name"], "thinking")
+        self.assertEqual(frames[0]["text"], "THINKING")
+        self.assertEqual(frames[1]["name"], "neutral")
+        self.assertEqual(frames[1]["text"], "NEUTRAL")
 
     def test_text_is_ascii_printable_and_clamped_for_oled(self):
         port = FakePort()

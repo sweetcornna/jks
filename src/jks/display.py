@@ -59,6 +59,8 @@ class DisplayController:
                 "cmd": "emotion",
                 "name": emotion,
                 "text": _oled_text(text),
+                "duration_ms": _duration_ms(intent.duration_ms),
+                "intensity": _intensity(intent.intensity),
             }
         )
 
@@ -85,7 +87,7 @@ class DisplayController:
             line = line.decode("utf-8")
         return json.loads(line)
 
-    def _write(self, payload: Mapping[str, str]) -> None:
+    def _write(self, payload: Mapping[str, object]) -> None:
         frame = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         self._output.write(frame.encode("utf-8") + b"\n")
         self._output.flush()
@@ -110,6 +112,21 @@ def _baud_constant(baud: int) -> int:
         supported = ", ".join(str(rate) for rate in sorted(_BAUD_RATES))
         raise ValueError(f"unsupported baud rate {baud}; choose one of: {supported}")
     return _BAUD_RATES[baud]
+
+
+def _duration_ms(raw: object) -> int:
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return 1200
+    return max(200, min(value, 5000))
+
+
+def _intensity(raw: object) -> str:
+    value = str(raw)
+    if value in {"soft", "normal", "high"}:
+        return value
+    return "normal"
 
 
 def _configure_serial_fd(fd: int, baud: int) -> None:

@@ -19,7 +19,11 @@ DEFAULT_TIMEOUT = 2.5
 
 _COMMANDS = [
     ({"cmd": "probe"}, "probe"),
-    ({"cmd": "emotion", "name": "happy", "text": "SMOKE OK"}, "happy"),
+    ({"cmd": "emotion", "name": "listening", "text": "HEAR", "duration_ms": 500, "intensity": "normal"}, "listening"),
+    ({"cmd": "emotion", "name": "thinking", "text": "WAIT", "duration_ms": 500, "intensity": "normal"}, "thinking"),
+    ({"cmd": "emotion", "name": "speaking", "text": "TALK", "duration_ms": 500, "intensity": "normal"}, "speaking"),
+    ({"cmd": "emotion", "name": "happy", "text": "SMOKE OK", "duration_ms": 1200, "intensity": "high"}, "happy"),
+    ({"cmd": "emotion", "name": "error", "text": "OOPS", "duration_ms": 500, "intensity": "soft"}, "error"),
     ({"cmd": "text", "text": "JKS SMOKE"}, "text"),
     ({"cmd": "clear"}, "clear"),
 ]

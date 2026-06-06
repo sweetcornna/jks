@@ -19,28 +19,72 @@ current_emotion = "happy"
 current_text = "JKS READY"
 
 
+# frame: left_eye, right_eye, mouth, fallback_label, x_offset, y_offset
+FACE_FRAMES = {
+    "neutral": [
+        ("dot", "dot", "flat", "READY", 0, 0),
+        ("blink", "blink", "flat", "READY", 0, 1),
+        ("dot", "dot", "flat", "READY", 0, 0),
+    ],
+    "happy": [
+        ("happy", "happy", "smile", "YAY", 0, 0),
+        ("blink", "blink", "smile", "YAY", 0, -1),
+        ("happy", "happy", "smile", "DONE", 0, 0),
+    ],
+    "thinking": [
+        ("side", "dot", "small", "WAIT", 0, 0),
+        ("dot", "side", "small", "hmm?", 0, 0),
+        ("dot", "dot", "flat", "...", 0, 0),
+    ],
+    "speaking": [
+        ("dot", "dot", "talk1", "TALK", 0, 0),
+        ("happy", "happy", "talk2", "talk", 0, 0),
+        ("dot", "dot", "open", "TALK!", 0, 0),
+    ],
+    "listening": [
+        ("wide", "wide", "small", "HEAR", 0, 0),
+        ("dot", "wide", "small", "o_o", -1, 0),
+        ("wide", "dot", "small", "...", 1, 0),
+    ],
+    "surprised": [
+        ("wide", "wide", "open", "WOW", 0, 0),
+        ("wide", "wide", "small", "O_O", 0, -1),
+        ("dot", "dot", "open", "!!", 0, 0),
+    ],
+    "sleepy": [
+        ("sleepy", "sleepy", "flat", "zzz", 0, 1),
+        ("blink", "blink", "small", "-_-", 0, 1),
+        ("sleepy", "sleepy", "flat", "Zzz", 0, 0),
+    ],
+    "sad": [
+        ("sad", "sad", "sad", "oh", 0, 0),
+        ("sad", "sad", "sad", "T_T", 0, 1),
+        ("blink", "sad", "sad", "...", 0, 0),
+    ],
+    "angry": [
+        ("angry", "angry", "flat", "HEY", -1, 0),
+        ("angry", "angry", "open", ">_<", 1, 0),
+        ("angry", "angry", "flat", "!!", 0, 0),
+    ],
+    "error": [
+        ("cross", "cross", "flat", "OOPS", -2, 0),
+        ("cross", "cross", "open", "! !", 2, 0),
+        ("dot", "dot", "flat", "READY", 0, 0),
+    ],
+}
+
+ALIASES = {
+    "smile": "happy",
+    "joy": "happy",
+    "think": "thinking",
+    "talk": "speaking",
+    "sleep": "sleepy",
+    "wow": "surprised",
+}
+
+
 def ack(status, detail):
-    print('{"status":"%s","detail":"%s"}' % (status, detail.replace('"', "")))
-
-
-def face_for(emotion):
-    faces = {
-        "happy": "^_^",
-        "smile": "^_^",
-        "joy": "^_^",
-        "sad": "T_T",
-        "angry": ">_<",
-        "surprised": "O_O",
-        "wow": "O_O",
-        "thinking": "?_?",
-        "think": "?_?",
-        "speaking": "^o^",
-        "talk": "^o^",
-        "sleepy": "-_-",
-        "sleep": "-_-",
-        "neutral": "._.",
-    }
-    return faces.get(emotion, "._.")
+    print('{"status":"%s","detail":"%s"}' % (status, str(detail).replace('"', "")))
 
 
 def clean(text, limit=14):
@@ -53,18 +97,121 @@ def clean(text, limit=14):
     return out
 
 
-def draw(emotion=None, text=None):
-    global current_emotion, current_text
-    if emotion is not None:
-        current_emotion = emotion
-    if text is not None:
-        current_text = text
+def clamp_duration(raw, default=900):
+    try:
+        value = int(raw)
+    except Exception:
+        return default
+    if value < 200:
+        return 200
+    if value > 5000:
+        return 5000
+    return value
 
+
+def clamp_intensity(raw):
+    value = str(raw)
+    if value in ("soft", "normal", "high"):
+        return value
+    return "normal"
+
+
+def normalize_emotion(name):
+    value = str(name)
+    value = ALIASES.get(value, value)
+    if value in FACE_FRAMES:
+        return value
+    return "neutral"
+
+
+def draw_eye(x, y, style):
+    if style == "blink":
+        display.hline(x, y + 6, 14, 1)
+    elif style == "happy":
+        display.hline(x + 1, y + 7, 12, 1)
+        display.pixel(x + 2, y + 6, 1)
+        display.pixel(x + 11, y + 6, 1)
+    elif style == "wide":
+        display.rect(x, y, 14, 12, 1)
+        display.fill_rect(x + 5, y + 4, 4, 4, 1)
+    elif style == "side":
+        display.rect(x, y + 2, 14, 8, 1)
+        display.fill_rect(x + 2, y + 5, 4, 2, 1)
+    elif style == "sleepy":
+        display.hline(x, y + 5, 12, 1)
+        display.hline(x + 2, y + 7, 8, 1)
+    elif style == "sad":
+        display.hline(x + 1, y + 8, 12, 1)
+        display.pixel(x + 2, y + 9, 1)
+        display.pixel(x + 11, y + 7, 1)
+    elif style == "angry":
+        display.hline(x, y + 3, 12, 1)
+        display.fill_rect(x + 4, y + 6, 6, 4, 1)
+    elif style == "cross":
+        display.hline(x + 2, y + 3, 10, 1)
+        display.hline(x + 2, y + 9, 10, 1)
+        display.vline(x + 3, y + 4, 5, 1)
+        display.vline(x + 10, y + 4, 5, 1)
+    else:
+        display.rect(x, y + 2, 14, 8, 1)
+        display.fill_rect(x + 5, y + 5, 4, 2, 1)
+
+
+def draw_mouth(style):
+    if style == "smile":
+        display.hline(56, 40, 16, 1)
+        display.pixel(55, 39, 1)
+        display.pixel(72, 39, 1)
+    elif style == "small":
+        display.hline(60, 40, 8, 1)
+    elif style == "open":
+        display.rect(56, 36, 16, 10, 1)
+        display.fill_rect(61, 40, 6, 3, 1)
+    elif style == "talk1":
+        display.hline(57, 38, 14, 1)
+        display.hline(59, 42, 10, 1)
+    elif style == "talk2":
+        display.rect(58, 37, 12, 8, 1)
+    elif style == "sad":
+        display.hline(56, 43, 16, 1)
+        display.pixel(55, 44, 1)
+        display.pixel(72, 44, 1)
+    else:
+        display.hline(56, 40, 16, 1)
+
+
+def draw_frame(frame, label):
+    left_eye, right_eye, mouth, fallback_label, dx, dy = frame
     display.fill(0)
     display.rect(0, 0, WIDTH, HEIGHT, 1)
-    display.text(face_for(current_emotion), 48, 18, 1)
-    display.text(clean(current_text, 16), 8, 40, 1)
+    display.fill_rect(4, 4, 3, 3, 1)
+    display.fill_rect(WIDTH - 7, 4, 3, 3, 1)
+    draw_eye(34 + dx, 18 + dy, left_eye)
+    draw_eye(80 + dx, 18 + dy, right_eye)
+    draw_mouth(mouth)
+    display.text(clean(label or fallback_label, 16), 8, 50, 1)
     display.show()
+
+
+def draw(emotion=None, text=None, duration_ms=900, intensity="normal"):
+    global current_emotion, current_text
+    if emotion is not None:
+        current_emotion = normalize_emotion(emotion)
+    if text is not None:
+        current_text = clean(text, 16)
+
+    frames = FACE_FRAMES.get(current_emotion, FACE_FRAMES["neutral"])
+    duration = clamp_duration(duration_ms)
+    delay = duration // len(frames)
+    intensity = clamp_intensity(intensity)
+    if intensity == "high":
+        delay = max(70, delay // 2)
+    elif intensity == "soft":
+        delay = min(900, delay + 120)
+
+    for frame in frames:
+        draw_frame(frame, current_text)
+        time.sleep_ms(delay)
 
 
 def clear():
@@ -118,18 +265,21 @@ def handle(line):
                 probe()
                 ack("ok", "probe")
             elif cmd == "text":
-                draw("neutral", data.get("text", ""))
+                draw("neutral", data.get("text", ""), 500, "soft")
                 ack("ok", "text")
             elif cmd in ("emotion", "face"):
-                name = data.get("name", "neutral")
-                draw(name, data.get("text", name))
+                name = normalize_emotion(data.get("name", data.get("emotion", "neutral")))
+                label = data.get("display_text", data.get("text", name))
+                duration_ms = clamp_duration(data.get("duration_ms", 900))
+                intensity = clamp_intensity(data.get("intensity", "normal"))
+                draw(name, label, duration_ms, intensity)
                 ack("ok", name)
             else:
                 ack("error", "unknown")
         except Exception as exc:
             ack("error", str(exc))
         return
-    draw("neutral", line)
+    draw("neutral", line, 500, "soft")
     ack("ok", "text")
 
 
@@ -137,7 +287,7 @@ def boot():
     print("JKS MicroPython OLED controller boot")
     print("i2c scan", [hex(x) for x in i2c.scan()])
     blink_probe(display)
-    draw(current_emotion, current_text)
+    draw(current_emotion, current_text, 700, "soft")
     ack("ok", "boot")
 
 

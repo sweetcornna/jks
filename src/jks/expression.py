@@ -87,6 +87,30 @@ class ExpressionEngine:
                 ExpressionFrame("listening", "o_o", 220),
                 ExpressionFrame("listening", "...", 260),
             ]
+        if emotion == "surprised":
+            return [
+                ExpressionFrame("surprised", "WOW", 180),
+                ExpressionFrame("surprised", "O_O", 240),
+                ExpressionFrame("surprised", "!!", 220),
+            ]
+        if emotion == "sleepy":
+            return [
+                ExpressionFrame("sleepy", "zzz", 420),
+                ExpressionFrame("sleepy", "-_-", 420),
+                ExpressionFrame("sleepy", "Zzz", 520),
+            ]
+        if emotion == "sad":
+            return [
+                ExpressionFrame("sad", "oh", 260),
+                ExpressionFrame("sad", "T_T", 360),
+                ExpressionFrame("sad", "...", 420),
+            ]
+        if emotion == "angry":
+            return [
+                ExpressionFrame("angry", "HEY", 180),
+                ExpressionFrame("angry", ">_<", 180),
+                ExpressionFrame("angry", "!!", 220),
+            ]
         if emotion == "neutral":
             return [
                 ExpressionFrame("neutral", "READY", 420),
@@ -99,8 +123,7 @@ class ExpressionEngine:
                 ExpressionFrame("error", "! !", 180),
                 ExpressionFrame("neutral", "READY", 600),
             ]
-        safe_emotion = emotion if emotion in ALLOWED_EMOTIONS else "neutral"
-        return [ExpressionFrame(safe_emotion, "", 500)]
+        return self.frames_for("neutral")
 
     def _clamp_duration(self, raw: object) -> int:
         try:

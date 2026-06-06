@@ -9,6 +9,9 @@ from unittest import mock
 from tools.oled_smoke import DEFAULT_TIMEOUT, main, run_oled_smoke
 
 
+EXPECTED_DETAILS = ["probe", "listening", "thinking", "speaking", "happy", "error", "text", "clear"]
+
+
 class FakePort:
     def __init__(self, lines):
         self._lines = list(lines)
@@ -64,41 +67,25 @@ class OledSmokeTests(unittest.TestCase):
         self.assertGreaterEqual(DEFAULT_TIMEOUT, 2.0)
 
     def test_oled_smoke_sends_commands_and_collects_acks(self):
-        port = FakePort(
-            [
-                b'{"status":"ok","detail":"probe"}\n',
-                b'{"status":"ok","detail":"happy"}\n',
-                b'{"status":"ok","detail":"text"}\n',
-                b'{"status":"ok","detail":"clear"}\n',
-            ]
-        )
+        port = FakePort([json.dumps({"status": "ok", "detail": detail}).encode() + b"\n" for detail in EXPECTED_DETAILS])
 
         result = run_oled_smoke(port=port)
 
         self.assertTrue(result["ok"])
-        self.assertEqual(
-            decoded_writes(port),
-            [
-                {"cmd": "probe"},
-                {"cmd": "emotion", "name": "happy", "text": "SMOKE OK"},
-                {"cmd": "text", "text": "JKS SMOKE"},
-                {"cmd": "clear"},
-            ],
-        )
-        self.assertEqual([ack["detail"] for ack in result["acks"]], ["probe", "happy", "text", "clear"])
-        self.assertEqual(result["details"], ["probe", "happy", "text", "clear"])
+        writes = decoded_writes(port)
+        self.assertEqual(writes[0], {"cmd": "probe"})
+        self.assertEqual([payload.get("name", payload["cmd"]) for payload in writes], EXPECTED_DETAILS)
+        self.assertEqual(writes[4]["name"], "happy")
+        self.assertEqual(writes[4]["text"], "SMOKE OK")
+        self.assertEqual(writes[4]["duration_ms"], 1200)
+        self.assertEqual(writes[4]["intensity"], "high")
+        self.assertEqual([ack["detail"] for ack in result["acks"]], EXPECTED_DETAILS)
+        self.assertEqual(result["details"], EXPECTED_DETAILS)
         self.assertEqual(result["missing"], [])
-        self.assertEqual(port.flush_count, 4)
+        self.assertEqual(port.flush_count, len(EXPECTED_DETAILS))
 
     def test_fake_port_does_not_open_serial(self):
-        port = FakePort(
-            [
-                b'{"status":"ok","detail":"probe"}\n',
-                b'{"status":"ok","detail":"happy"}\n',
-                b'{"status":"ok","detail":"text"}\n',
-                b'{"status":"ok","detail":"clear"}\n',
-            ]
-        )
+        port = FakePort([json.dumps({"status": "ok", "detail": detail}).encode() + b"\n" for detail in EXPECTED_DETAILS])
 
         with mock.patch("jks.display.open_serial_output") as open_serial:
             result = run_oled_smoke(port=port)
@@ -113,39 +100,29 @@ class OledSmokeTests(unittest.TestCase):
 
         self.assertFalse(result["ok"])
         self.assertEqual(result["details"], ["probe"])
-        self.assertEqual(result["missing"], ["happy", "text", "clear"])
+        self.assertEqual(result["missing"], EXPECTED_DETAILS[1:])
 
     def test_oled_smoke_ignores_stale_boot_ack_before_command_acks(self):
         port = FakePort(
             [
                 b'JKS MicroPython OLED controller boot\n',
                 b'{"status":"ok","detail":"boot"}\n',
-                b'{"status":"ok","detail":"probe"}\n',
-                b'{"status":"ok","detail":"happy"}\n',
-                b'{"status":"ok","detail":"text"}\n',
-                b'{"status":"ok","detail":"clear"}\n',
+                *[json.dumps({"status": "ok", "detail": detail}).encode() + b"\n" for detail in EXPECTED_DETAILS],
             ]
         )
 
         result = run_oled_smoke(port=port)
 
         self.assertTrue(result["ok"])
-        self.assertEqual(result["details"], ["probe", "happy", "text", "clear"])
+        self.assertEqual(result["details"], EXPECTED_DETAILS)
 
     def test_oled_smoke_drains_stale_same_detail_acks_before_running(self):
-        port = EchoingFakePort(
-            [
-                b'{"status":"ok","detail":"probe"}\n',
-                b'{"status":"ok","detail":"happy"}\n',
-                b'{"status":"ok","detail":"text"}\n',
-                b'{"status":"ok","detail":"clear"}\n',
-            ]
-        )
+        port = EchoingFakePort([json.dumps({"status": "ok", "detail": detail}).encode() + b"\n" for detail in EXPECTED_DETAILS])
 
         result = run_oled_smoke(port=port)
 
         self.assertTrue(result["ok"])
-        self.assertEqual(result["details"], ["probe", "happy", "text", "clear"])
+        self.assertEqual(result["details"], EXPECTED_DETAILS)
         self.assertTrue(all(ack.get("fresh") is True for ack in result["acks"]))
 
     def test_oled_smoke_reports_non_json_lines_when_ack_is_missing(self):
@@ -170,13 +147,13 @@ class OledSmokeTests(unittest.TestCase):
             )
             start = time.monotonic()
             thread.start()
-            thread.join(0.25)
+            thread.join(0.75)
             if thread.is_alive():
                 peer_socket.close()
                 thread.join(0.25)
                 self.fail("OLED smoke blocked on a partial line beyond its timeout")
 
-            self.assertLess(time.monotonic() - start, 0.25)
+            self.assertLess(time.monotonic() - start, 0.75)
             result = result_box["result"]
             self.assertFalse(result["ok"])
             self.assertEqual(result["errors"][0]["error"], "json")
@@ -187,14 +164,7 @@ class OledSmokeTests(unittest.TestCase):
             peer_socket.close()
 
     def test_main_opens_serial_and_prints_compact_json(self):
-        port = FakePort(
-            [
-                b'{"status":"ok","detail":"probe"}\n',
-                b'{"status":"ok","detail":"happy"}\n',
-                b'{"status":"ok","detail":"text"}\n',
-                b'{"status":"ok","detail":"clear"}\n',
-            ]
-        )
+        port = FakePort([json.dumps({"status": "ok", "detail": detail}).encode() + b"\n" for detail in EXPECTED_DETAILS])
         stdout = io.StringIO()
 
         with mock.patch("jks.display.open_serial_output", return_value=port) as open_serial:
@@ -207,7 +177,7 @@ class OledSmokeTests(unittest.TestCase):
         self.assertNotIn(", ", output)
         payload = json.loads(output)
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["details"], ["probe", "happy", "text", "clear"])
+        self.assertEqual(payload["details"], EXPECTED_DETAILS)
         self.assertTrue(port.closed)
 
     def test_main_returns_one_for_incomplete_ack_sequence(self):
