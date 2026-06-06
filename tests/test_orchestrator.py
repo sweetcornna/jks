@@ -153,6 +153,30 @@ class OrchestratorTests(unittest.TestCase):
         self.assertEqual(orchestrator.speech.synthesized, [("reply", "warm")])
         self.assertEqual(orchestrator.state, TurnState.IDLE)
 
+    def test_status_callback_reports_turn_state_progress(self):
+        states = []
+        orchestrator = ConversationOrchestrator(
+            recorder=FakeRecorder(),
+            speech=FakeSpeech(user_text="hello"),
+            agent=FakeAgent(reply=AgentReply(text="reply", emotion="happy")),
+            display=FakeDisplay(),
+            player=FakePlayer(),
+            voice="warm",
+            status_callback=states.append,
+        )
+
+        orchestrator.run_voice_turn()
+
+        self.assertEqual(
+            states,
+            [
+                TurnState.LISTENING,
+                TurnState.TRANSCRIBING,
+                TurnState.THINKING,
+                TurnState.SPEAKING,
+            ],
+        )
+
     def test_start_and_finish_voice_turn_support_button_toggle_recording(self):
         display = FakeDisplay()
         recorder = ToggleRecorder()

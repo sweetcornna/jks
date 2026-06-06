@@ -222,6 +222,38 @@ class AppTests(unittest.TestCase):
         self.assertEqual(ui.button.options["state"], "normal")
         self.assertEqual(ui.button.text, "Speak")
 
+    def test_ui_maps_orchestrator_state_callback_to_status_text(self):
+        from jks import app
+        from jks.expression import TurnState
+        from jks.orchestrator import TurnResult
+
+        root = FakeRoot()
+        captured = {}
+        orchestrator = FakeOrchestrator(
+            result=TurnResult(user_text="hello", agent_text="reply", emotion="happy")
+        )
+
+        def fake_build_orchestrator(config, status_callback=None):
+            captured["status_callback"] = status_callback
+            return orchestrator
+
+        with patch.object(app, "load_config", return_value=sample_config()), patch.object(
+            app, "build_orchestrator", fake_build_orchestrator
+        ), patch.object(app.tk, "StringVar", FakeStringVar), patch.object(
+            app.ttk, "Button", FakeButton
+        ), patch.object(app.ttk, "Label", FakeLabel), patch.object(
+            app.threading, "Thread", ImmediateThread
+        ):
+            ui = app.JksApp(root)
+
+        self.assertIsNotNone(captured["status_callback"])
+        captured["status_callback"](TurnState.TRANSCRIBING)
+        self.assertEqual(ui.status.get(), "Transcribing")
+        captured["status_callback"](TurnState.THINKING)
+        self.assertEqual(ui.status.get(), "Thinking")
+        captured["status_callback"](TurnState.SPEAKING)
+        self.assertEqual(ui.status.get(), "Speaking")
+
     def test_ui_first_click_starts_recording_and_waits_for_stop_click(self):
         from jks import app
         from jks.orchestrator import TurnResult

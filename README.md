@@ -79,6 +79,12 @@ Probe configured real contracts:
 uv run python -m tools.jks_contract_probe
 ```
 
+Run a chained no-GUI/no-mic turn probe with a real audio file:
+
+```bash
+uv run python -m tools.jks_turn_probe --audio /path/to/input.wav
+```
+
 Run OLED hardware smoke:
 
 ```bash

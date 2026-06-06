@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Callable, Optional
 from uuid import uuid4
 
 from .agent import AgentReply
@@ -16,13 +17,23 @@ class TurnResult:
 
 
 class ConversationOrchestrator:
-    def __init__(self, recorder, speech, agent, display, player, voice: str):
+    def __init__(
+        self,
+        recorder,
+        speech,
+        agent,
+        display,
+        player,
+        voice: str,
+        status_callback: Optional[Callable[[TurnState], None]] = None,
+    ):
         self.recorder = recorder
         self.speech = speech
         self.agent = agent
         self.display = display
         self.player = player
         self.voice = voice
+        self.status_callback = status_callback
         self.expression = ExpressionEngine()
         self.conversation_id = str(uuid4())
         self.state = TurnState.IDLE
@@ -96,6 +107,7 @@ class ConversationOrchestrator:
 
     def _set_state(self, state: TurnState) -> None:
         self.state = state
+        self._emit_status(state)
         self._show_state(state)
 
     def _require_idle(self) -> None:
@@ -105,5 +117,13 @@ class ConversationOrchestrator:
     def _show_intent(self, intent) -> None:
         try:
             self.display.show(intent)
+        except Exception:
+            return None
+
+    def _emit_status(self, state: TurnState) -> None:
+        if self.status_callback is None:
+            return None
+        try:
+            self.status_callback(state)
         except Exception:
             return None

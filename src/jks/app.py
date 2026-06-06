@@ -12,6 +12,7 @@ from .agent import HttpAgentClient
 from .audio import AudioPlayer, AudioRecorder
 from .config import AppConfig, load_config
 from .display import DisplayController, NullDisplayController, open_serial_output
+from .expression import TurnState
 from .orchestrator import ConversationOrchestrator
 from .speech import FakeSpeechClient, HttpSpeechClient
 
@@ -23,6 +24,7 @@ def build_orchestrator(
     output_dir: Optional[Path] = None,
     recorder=None,
     player=None,
+    status_callback: Optional[Callable[[TurnState], None]] = None,
 ) -> ConversationOrchestrator:
     output_dir = Path(output_dir) if output_dir is not None else Path(tempfile.gettempdir())
 
@@ -46,7 +48,18 @@ def build_orchestrator(
         display=display,
         player=player or AudioPlayer(),
         voice=config.tts_voice,
+        status_callback=status_callback,
     )
+
+
+STATE_LABELS = {
+    TurnState.IDLE: "Ready",
+    TurnState.LISTENING: "Listening",
+    TurnState.TRANSCRIBING: "Transcribing",
+    TurnState.THINKING: "Thinking",
+    TurnState.SPEAKING: "Speaking",
+    TurnState.ERROR: "Error",
+}
 
 
 class JksApp:
@@ -55,7 +68,9 @@ class JksApp:
         self.root.title("JKS Voice Agent")
         self.status = tk.StringVar(value="Ready")
         self.transcript = tk.StringVar(value="")
-        self.orchestrator = orchestrator or build_orchestrator(load_config())
+        self.orchestrator = orchestrator or build_orchestrator(
+            load_config(), status_callback=self._show_turn_state
+        )
         self._recording = False
 
         self.button = ttk.Button(root, text="Speak", command=self.start_turn)
@@ -113,6 +128,10 @@ class JksApp:
         self._recording = False
         self.status.set(f"Error: {exc}")
         self.button.configure(text="Speak", state="normal")
+
+    def _show_turn_state(self, state: TurnState) -> None:
+        label = STATE_LABELS.get(state, str(state))
+        self.root.after(0, lambda label=label: self.status.set(label))
 
 
 def _print_help(stdout: TextIO) -> None:
