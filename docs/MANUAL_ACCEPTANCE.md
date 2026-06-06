@@ -26,18 +26,25 @@ Use a Fish voice/reference id in `JKS_TTS_VOICE` if a specific voice is needed.
 ## Preflight
 
 ```bash
+uv run python -m tools.jks_smoke
 uv run python -m tools.jks_config_check
 uv run python -m tools.jks_contract_probe
 uv run python -m tools.jks_turn_probe --audio /path/to/input.wav --play
-uv run python -m tools.oled_smoke --port /dev/cu.usbmodem5B900048301
+uv run python -m tools.oled_smoke
 ```
 
 Expected:
 
+- `jks_smoke`: `ok:true`
 - `jks_config_check`: `ok:true`
 - `jks_contract_probe`: `ok:true`
 - `jks_turn_probe`: `server_events:["stt","chat","tts"]`
 - `oled_smoke`: `ok:true`
+
+`jks_turn_probe` prints text lengths by default, not full transcripts. Add
+`--verbose` only when local transcript logging is acceptable.
+`oled_smoke` reads `JKS_OLED_PORT` and `JKS_OLED_BAUD`; add `--hold-ms 2000`
+when capturing visual evidence.
 
 ## Desktop Turn
 
@@ -60,10 +67,23 @@ Record:
 
 Capture at least one photo or short video showing:
 
+- `neutral`
 - `listening`
 - `thinking`
 - `speaking`
 - `happy`
+- `surprised`
+- `sleepy`
+- `sad`
+- `angry`
 - `error`
+
+Visual pass criteria:
+
+- Short OLED labels are readable and not cropped.
+- Eye and mouth changes are visible between moods.
+- Animation cadence feels alive rather than static or flickery.
+- `speaking` is visible while audio playback is active.
+- The display returns to a completion or agent-selected expression after playback.
 
 Save visual evidence outside the repository unless it is intentionally redacted and safe to publish.

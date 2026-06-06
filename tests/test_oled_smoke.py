@@ -9,7 +9,21 @@ from unittest import mock
 from tools.oled_smoke import DEFAULT_TIMEOUT, main, run_oled_smoke
 
 
-EXPECTED_DETAILS = ["probe", "listening", "thinking", "speaking", "happy", "error", "text", "clear"]
+EXPECTED_DETAILS = [
+    "probe",
+    "neutral",
+    "listening",
+    "thinking",
+    "speaking",
+    "happy",
+    "surprised",
+    "sleepy",
+    "sad",
+    "angry",
+    "error",
+    "text",
+    "clear",
+]
 
 
 class FakePort:
@@ -75,10 +89,10 @@ class OledSmokeTests(unittest.TestCase):
         writes = decoded_writes(port)
         self.assertEqual(writes[0], {"cmd": "probe"})
         self.assertEqual([payload.get("name", payload["cmd"]) for payload in writes], EXPECTED_DETAILS)
-        self.assertEqual(writes[4]["name"], "happy")
-        self.assertEqual(writes[4]["text"], "SMOKE OK")
-        self.assertEqual(writes[4]["duration_ms"], 1200)
-        self.assertEqual(writes[4]["intensity"], "high")
+        happy = next(payload for payload in writes if payload.get("name") == "happy")
+        self.assertEqual(happy["text"], "SMOKE OK")
+        self.assertEqual(happy["duration_ms"], 1200)
+        self.assertEqual(happy["intensity"], "high")
         self.assertEqual([ack["detail"] for ack in result["acks"]], EXPECTED_DETAILS)
         self.assertEqual(result["details"], EXPECTED_DETAILS)
         self.assertEqual(result["missing"], [])
@@ -179,6 +193,31 @@ class OledSmokeTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["details"], EXPECTED_DETAILS)
         self.assertTrue(port.closed)
+
+    def test_main_uses_configured_port_and_baud_when_not_explicit(self):
+        port = FakePort([json.dumps({"status": "ok", "detail": detail}).encode() + b"\n" for detail in EXPECTED_DETAILS])
+        stdout = io.StringIO()
+
+        with mock.patch("jks.display.open_serial_output", return_value=port) as open_serial:
+            with mock.patch.dict(
+                "os.environ",
+                {"JKS_OLED_PORT": "/dev/cu.configured", "JKS_OLED_BAUD": "57600"},
+                clear=True,
+            ):
+                exit_code = main([], stdout=stdout)
+
+        self.assertEqual(exit_code, 0)
+        open_serial.assert_called_once_with("/dev/cu.configured", 57600)
+
+    def test_hold_ms_overrides_emotion_durations_for_visual_acceptance(self):
+        port = FakePort([json.dumps({"status": "ok", "detail": detail}).encode() + b"\n" for detail in EXPECTED_DETAILS])
+
+        result = run_oled_smoke(port=port, hold_ms=2000)
+
+        self.assertTrue(result["ok"])
+        for payload in decoded_writes(port):
+            if payload["cmd"] == "emotion":
+                self.assertEqual(payload["duration_ms"], 2000)
 
     def test_main_returns_one_for_incomplete_ack_sequence(self):
         stdout = io.StringIO()

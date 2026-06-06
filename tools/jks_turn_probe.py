@@ -26,9 +26,10 @@ def _empty_summary() -> dict[str, object]:
     }
 
 
-def _parse_args(argv: Sequence[str]) -> tuple[Optional[Path], bool, list[dict[str, str]]]:
+def _parse_args(argv: Sequence[str]) -> tuple[Optional[Path], bool, bool, list[dict[str, str]]]:
     audio_path: Optional[Path] = None
     play = False
+    verbose = False
     errors: list[dict[str, str]] = []
     index = 0
     while index < len(argv):
@@ -44,12 +45,16 @@ def _parse_args(argv: Sequence[str]) -> tuple[Optional[Path], bool, list[dict[st
             play = True
             index += 1
             continue
+        if arg == "--verbose":
+            verbose = True
+            index += 1
+            continue
         errors.append({"error": "args", "message": f"unsupported argument: {arg}"})
         index += 1
 
     if audio_path is None and not errors:
         errors.append({"error": "audio", "message": "--audio is required"})
-    return audio_path, play, errors
+    return audio_path, play, verbose, errors
 
 
 def _dumps_compact_redacted_safe(payload: dict[str, object]) -> str:
@@ -58,7 +63,7 @@ def _dumps_compact_redacted_safe(payload: dict[str, object]) -> str:
 
 def run_turn_probe(argv: Sequence[str]) -> dict[str, object]:
     summary = _empty_summary()
-    audio_path, play, errors = _parse_args(argv)
+    audio_path, play, verbose, errors = _parse_args(argv)
     if errors:
         summary["errors"] = errors
         return summary
@@ -77,23 +82,40 @@ def run_turn_probe(argv: Sequence[str]) -> dict[str, object]:
     checks: dict[str, object] = {}
     server_events: list[str] = []
     errors = []
-    try:
-        output_dir = Path(tempfile.gettempdir()) / "jks-turn-probe"
-        speech = build_speech_client(config, output_dir)
-        agent = HttpAgentClient(config.agent_endpoint, config.agent_token)
+    output_dir = Path(tempfile.gettempdir()) / "jks-turn-probe"
+    speech = build_speech_client(config, output_dir)
+    agent = HttpAgentClient(config.agent_endpoint, config.agent_token)
 
+    try:
         user_text = speech.transcribe(audio_path)
         server_events.append("stt")
-        checks["stt"] = {"text": user_text, "text_length": len(user_text)}
+        checks["stt"] = {"text_length": len(user_text)}
+        if verbose:
+            checks["stt"]["text"] = user_text
+    except Exception as exc:
+        errors.append({"error": "stt", "message": str(exc)})
+        summary["checks"] = checks
+        summary["server_events"] = server_events
+        summary["errors"] = errors
+        return summary
 
+    try:
         reply = agent.send_message(user_text, f"turn-probe-{uuid4().hex}")
         server_events.append("chat")
         checks["agent"] = {
-            "text": reply.text,
             "text_length": len(reply.text),
             "emotion": reply.emotion,
         }
+        if verbose:
+            checks["agent"]["text"] = reply.text
+    except Exception as exc:
+        errors.append({"error": "agent", "message": str(exc)})
+        summary["checks"] = checks
+        summary["server_events"] = server_events
+        summary["errors"] = errors
+        return summary
 
+    try:
         audio_reply = speech.synthesize(reply.text, config.tts_voice)
         server_events.append("tts")
         checks["tts"] = {
@@ -105,7 +127,7 @@ def run_turn_probe(argv: Sequence[str]) -> dict[str, object]:
             AudioPlayer().play(audio_reply)
             checks["playback"] = {"played": True}
     except Exception as exc:
-        errors.append({"error": "turn", "message": str(exc)})
+        errors.append({"error": "tts", "message": str(exc)})
 
     summary["checks"] = checks
     summary["server_events"] = server_events

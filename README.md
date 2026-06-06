@@ -122,11 +122,30 @@ Run a chained no-GUI/no-mic turn probe with a real audio file:
 uv run python -m tools.jks_turn_probe --audio /path/to/input.wav
 ```
 
+By default, the turn probe prints text lengths instead of full transcripts so
+real user speech is not copied into logs. Add `--verbose` only for local
+debugging when transcript output is safe:
+
+```bash
+uv run python -m tools.jks_turn_probe --audio /path/to/input.wav --verbose
+```
+
 Run OLED hardware smoke:
 
 ```bash
-uv run python -m tools.oled_smoke --port /dev/cu.usbmodem5B900048301
+uv run python -m tools.oled_smoke
 ```
+
+The command reads `JKS_OLED_PORT` and `JKS_OLED_BAUD` from `.env` unless
+`--port` or `--baud` are provided. For photo or video capture, hold each emotion
+longer:
+
+```bash
+uv run python -m tools.oled_smoke --hold-ms 2000
+```
+
+The OLED smoke covers all base emotions: `neutral`, `listening`, `thinking`,
+`speaking`, `happy`, `surprised`, `sleepy`, `sad`, `angry`, and `error`.
 
 ## Firmware
 

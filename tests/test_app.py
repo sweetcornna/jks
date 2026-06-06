@@ -34,9 +34,11 @@ class DelayedRoot(FakeRoot):
 class FakeStringVar:
     def __init__(self, value=""):
         self.value = value
+        self.history = [value]
 
     def set(self, value):
         self.value = value
+        self.history.append(value)
 
     def get(self):
         return self.value
@@ -77,6 +79,18 @@ class ImmediateThread:
         self.target()
 
 
+class DeferredThread:
+    created = []
+
+    def __init__(self, target, daemon):
+        self.target = target
+        self.daemon = daemon
+        DeferredThread.created.append(self)
+
+    def start(self):
+        pass
+
+
 class FakeOrchestrator:
     def __init__(self, result=None, exc=None, start_exc=None):
         self.result = result
@@ -100,6 +114,21 @@ class FakeOrchestrator:
         self.turns += 1
         if self.exc:
             raise self.exc
+        return self.result
+
+
+class ProgressOrchestrator(FakeOrchestrator):
+    def __init__(self, status_callback, result):
+        super().__init__(result=result)
+        self.status_callback = status_callback
+
+    def finish_voice_turn(self):
+        from jks.expression import TurnState
+
+        self.turns += 1
+        self.status_callback(TurnState.TRANSCRIBING)
+        self.status_callback(TurnState.THINKING)
+        self.status_callback(TurnState.SPEAKING)
         return self.result
 
 
@@ -299,6 +328,47 @@ class AppTests(unittest.TestCase):
         captured["status_callback"](TurnState.SPEAKING)
         self.assertEqual(ui.status.get(), "Speaking")
 
+    def test_ui_turn_tracks_full_visible_status_sequence(self):
+        from jks import app
+        from jks.orchestrator import TurnResult
+
+        root = FakeRoot()
+
+        def fake_build_orchestrator(
+            config,
+            status_callback=None,
+            display_status_callback=None,
+            display_error_callback=None,
+        ):
+            return ProgressOrchestrator(
+                status_callback,
+                TurnResult(user_text="hello", agent_text="reply", emotion="happy"),
+            )
+
+        with patch.object(app, "load_config", return_value=sample_config()), patch.object(
+            app, "build_orchestrator", fake_build_orchestrator
+        ), patch.object(app.tk, "StringVar", FakeStringVar), patch.object(
+            app.ttk, "Button", FakeButton
+        ), patch.object(app.ttk, "Label", FakeLabel), patch.object(
+            app.threading, "Thread", ImmediateThread
+        ):
+            ui = app.JksApp(root)
+            ui.start_turn()
+            ui.start_turn()
+
+        self.assertEqual(
+            ui.status.history,
+            [
+                "Ready",
+                "Listening",
+                "Transcribing",
+                "Transcribing",
+                "Thinking",
+                "Speaking",
+                "Ready",
+            ],
+        )
+
     def test_ui_shows_serial_degraded_prompt_from_builder(self):
         from jks import app
         from jks.orchestrator import TurnResult
@@ -387,6 +457,28 @@ class AppTests(unittest.TestCase):
         self.assertEqual(ui.status.get(), "Listening")
         self.assertEqual(ui.button.options["state"], "normal")
         self.assertEqual(ui.button.text, "Stop")
+
+    def test_ui_second_click_shows_transcribing_until_worker_reports_progress(self):
+        from jks import app
+        from jks.orchestrator import TurnResult
+
+        root = FakeRoot()
+        orchestrator = FakeOrchestrator(
+            result=TurnResult(user_text="hello", agent_text="reply", emotion="happy")
+        )
+        DeferredThread.created = []
+
+        with patch.object(app.tk, "StringVar", FakeStringVar), patch.object(
+            app.ttk, "Button", FakeButton
+        ), patch.object(app.ttk, "Label", FakeLabel), patch.object(
+            app.threading, "Thread", DeferredThread
+        ):
+            ui = app.JksApp(root, orchestrator=orchestrator)
+            ui.start_turn()
+            ui.start_turn()
+
+        self.assertEqual(ui.status.get(), "Transcribing")
+        self.assertEqual(len(DeferredThread.created), 1)
 
     def test_ui_error_turn_restores_button(self):
         from jks import app

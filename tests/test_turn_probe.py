@@ -93,13 +93,59 @@ class TurnProbeCliTests(unittest.TestCase):
         self.assertNotIn("api_key=secret", text)
         self.assertNotIn("token=secret", text)
         self.assertNotIn(": ", text)
-        self.assertEqual(payload["checks"]["stt"]["text"], "hello agent")
-        self.assertEqual(payload["checks"]["agent"]["text"], "Fake reply to: hello agent")
+        self.assertNotIn("hello agent", text)
+        self.assertNotIn("Fake reply to: hello agent", text)
+        self.assertEqual(payload["checks"]["stt"], {"text_length": len("hello agent")})
+        self.assertEqual(payload["checks"]["agent"]["text_length"], len("Fake reply to: hello agent"))
         self.assertEqual(payload["checks"]["agent"]["emotion"], "happy")
         self.assertGreater(payload["checks"]["tts"]["bytes"], 0)
         self.assertEqual(payload["checks"]["tts"]["voice"], "warm")
         self.assertEqual(payload["server_events"], ["stt", "chat", "tts"])
         self.assertEqual([event["kind"] for event in server.events], ["stt", "chat", "tts"])
+
+    def test_verbose_probe_includes_transcripts_for_local_debugging(self):
+        server = start_fake_services()
+        stdout = io.StringIO()
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                audio_path = Path(temp_dir) / "input.wav"
+                write_silent_wav(audio_path)
+                env = {
+                    "JKS_AGENT_ENDPOINT": server.base_url + "/chat",
+                    "JKS_STT_ENDPOINT": server.base_url + "/stt",
+                    "JKS_TTS_ENDPOINT": server.base_url + "/tts",
+                }
+
+                with clean_cwd(), patch.dict(os.environ, env, clear=True):
+                    exit_code = main(["--audio", str(audio_path), "--verbose"], stdout=stdout)
+        finally:
+            server.stop()
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["checks"]["stt"]["text"], "hello agent")
+        self.assertEqual(payload["checks"]["agent"]["text"], "Fake reply to: hello agent")
+
+    def test_stt_failure_reports_stt_stage(self):
+        stdout = io.StringIO()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            audio_path = Path(temp_dir) / "input.wav"
+            write_silent_wav(audio_path)
+            env = {
+                "JKS_AGENT_ENDPOINT": "http://agent.local/chat",
+                "JKS_STT_ENDPOINT": "http://speech.local/stt",
+                "JKS_TTS_ENDPOINT": "http://speech.local/tts",
+            }
+
+            with clean_cwd(), patch.dict(os.environ, env, clear=True):
+                with patch("jks.speech.requests.post", side_effect=OSError("offline")):
+                    exit_code = main(["--audio", str(audio_path)], stdout=stdout)
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(payload["server_events"], [])
+        self.assertEqual(payload["errors"][0]["error"], "stt")
 
     def test_play_flag_plays_generated_tts_audio(self):
         server = start_fake_services()

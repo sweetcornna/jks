@@ -107,7 +107,7 @@ class JksApp:
     def _stop_and_run_turn(self) -> None:
         self._recording = False
         self.button.configure(state="disabled")
-        self.status.set("Thinking")
+        self.status.set("Transcribing")
         thread = threading.Thread(target=self._run_turn, daemon=True)
         thread.start()
 
