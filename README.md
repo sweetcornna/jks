@@ -190,6 +190,13 @@ a GUI:
 uv run python -m tools.jks_app_probe --audio /path/to/input.wav --require-display-ack --display-ack-timeout 6 --play
 ```
 
+Probe the real Tk event loop and real Speak button widget with the same audio
+file:
+
+```bash
+uv run python -m tools.jks_gui_probe --audio /path/to/input.wav --require-display-ack --display-ack-timeout 6 --play
+```
+
 By default, the turn probe prints text lengths instead of full transcripts so
 real user speech is not copied into logs. Add `--verbose` only for local
 debugging when transcript output is safe:
