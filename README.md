@@ -176,6 +176,13 @@ For long OLED animations, increase the ACK window:
 uv run python -m tools.jks_turn_probe --audio /path/to/input.wav --display --require-display-ack --display-ack-timeout 6
 ```
 
+Probe the same start/stop path used by the desktop Speak button without opening
+a GUI:
+
+```bash
+uv run python -m tools.jks_app_probe --audio /path/to/input.wav --require-display-ack --display-ack-timeout 6 --play
+```
+
 By default, the turn probe prints text lengths instead of full transcripts so
 real user speech is not copied into logs. Add `--verbose` only for local
 debugging when transcript output is safe:

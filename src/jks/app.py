@@ -32,7 +32,7 @@ def build_orchestrator(
 
     try:
         serial_output = open_serial(config.oled_port, config.oled_baud)
-        display = DisplayController(serial_output)
+        display = DisplayController(serial_output, ack_input=serial_output)
     except Exception:
         if display_status_callback is not None:
             display_status_callback(

@@ -48,6 +48,7 @@ uv run python -m tools.jks_agent_probe
 uv run python -m tools.jks_config_check
 uv run python -m tools.jks_contract_probe
 uv run python -m tools.jks_turn_probe --audio /path/to/input.wav --display --require-display-ack --display-ack-timeout 6 --play
+uv run python -m tools.jks_app_probe --audio /path/to/input.wav --require-display-ack --display-ack-timeout 6 --play
 uv run python -m tools.oled_smoke
 ```
 
@@ -59,6 +60,7 @@ Expected:
 - `jks_contract_probe`: `ok:true`
 - `jks_turn_probe`: `server_events:["stt","chat","tts"]`
 - `jks_turn_probe`: `display_events` includes listening/transcribing/thinking/speaking/agent and no missing ACKs
+- `jks_app_probe`: `ui.clicks:2`, `orchestrator.run_voice_turn_calls:0`, `server_events:["stt","chat","tts"]`, `playback.played:true`
 - `oled_smoke`: `ok:true`
 
 `jks_turn_probe` prints text lengths by default, not full transcripts. Add
