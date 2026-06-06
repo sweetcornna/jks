@@ -17,13 +17,11 @@ probes were run with secrets supplied through the shell environment only.
 - `uv run python -m tools.jks_gui_probe --audio /tmp/jks-real-turn.mp3 --require-display-ack --display-ack-timeout 6 --play`: `ok:true`; real Tk app created; two Speak button clicks; final status Ready; playback true; no missing OLED ACKs.
 - `uv run python -m tools.oled_smoke --hold-ms 1000`: `ok:true`; ACKs received for probe, all base emotions, text, and clear.
 - Visible desktop GUI evidence was captured outside the repository under `/tmp/jks-acceptance-evidence/gui-visible-01.png`, `/tmp/jks-acceptance-evidence/gui-visible-02.png`, and `/tmp/jks-acceptance-evidence/gui-visible-03.png`; `gui-visible-probe.json` reports `ok:true`, `shown:true`, two clicks, playback true, and no missing OLED ACKs.
-- `uv run python -m tools.jks_visual_evidence --camera-device 1 --seconds 8 --hold-ms 500 --output-dir /tmp/jks-acceptance-evidence`: command returned `ok:true` and wrote `oled-camera.mp4`; visual review showed the camera was not aimed at the OLED, so this video is not acceptable physical OLED evidence.
+- `uv run python -m tools.jks_visual_evidence --camera-device 1 --seconds 8 --hold-ms 500 --output-dir /tmp/jks-acceptance-evidence`: command returned `ok:true` and wrote `oled-camera.mp4`; visual review showed the camera was not aimed at the OLED, so this video was rejected.
+- `uv run python -m tools.jks_visual_evidence --camera-device 0 --video-size 1280x720 --seconds 16 --hold-ms 1000 --output-dir /tmp/jks-acceptance-evidence/final-camera0`: `ok:true`; ACKs received for probe, all base emotions, text, and clear; physical OLED was in frame and readable in visual review. Evidence files are outside the repository at `/tmp/jks-acceptance-evidence/final-camera0/oled-camera.mp4`, `/tmp/jks-acceptance-evidence/final-camera0/desktop-screen.png`, and `/tmp/jks-acceptance-evidence/final-camera0/contact.png`.
 
-## Remaining Manual Evidence
+## Manual Evidence
 
-The terminal can verify serial ACKs, playback invocation, visible and hidden Tk
-GUI state, and real service responses. The only remaining acceptance item is a
-physical photo or short video where the external OLED is actually in frame and
-readable across the required moods. Re-aim a camera at the OLED and rerun the
-visual capture helper in `docs/MANUAL_ACCEPTANCE.md`, then visually review the
-result before marking human-facing acceptance complete.
+Serial ACKs, playback invocation, visible and hidden Tk GUI state, real service
+responses, microphone capture, and physical OLED video evidence have all been
+reviewed. Human-facing acceptance is complete as of 2026-06-06.
