@@ -12,7 +12,7 @@ import wave
 from jks.agent import HttpAgentClient
 from jks.config import load_config
 from jks.preflight import analyze_config
-from jks.speech import HttpSpeechClient
+from jks.speech import build_speech_client
 
 
 def _write_silent_wav(path: Path) -> None:
@@ -53,7 +53,7 @@ def run_probe() -> dict[str, object]:
             temp_path = Path(temp_dir)
             input_audio = temp_path / "contract-probe.wav"
             _write_silent_wav(input_audio)
-            speech = HttpSpeechClient(config.stt_endpoint, config.tts_endpoint, temp_path)
+            speech = build_speech_client(config, temp_path)
             stt_text = speech.transcribe(input_audio)
             tts_audio = speech.synthesize("JKS contract probe", config.tts_voice)
             checks["speech"] = {

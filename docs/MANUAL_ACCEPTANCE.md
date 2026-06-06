@@ -11,6 +11,18 @@ JKS_AGENT_TOKEN="replace-with-local-api-server-key"
 
 The token must match Hermes `API_SERVER_KEY`.
 
+For Fish Audio speech, set:
+
+```dotenv
+JKS_STT_PROVIDER="fish"
+JKS_TTS_PROVIDER="fish"
+JKS_FISH_API_KEY="replace-with-fish-api-key"
+JKS_FISH_TTS_MODEL="s2-pro"
+JKS_TTS_VOICE="default"
+```
+
+Use a Fish voice/reference id in `JKS_TTS_VOICE` if a specific voice is needed.
+
 ## Preflight
 
 ```bash

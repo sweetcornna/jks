@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from jks.speech import FakeSpeechClient, HttpSpeechClient, SpeechProviderError
+from jks.speech import FakeSpeechClient, FishAudioSpeechClient, HttpSpeechClient, SpeechProviderError
 
 
 class SpeechTests(unittest.TestCase):
@@ -92,6 +92,134 @@ class SpeechTests(unittest.TestCase):
             timeout=60,
         )
         self.assertEqual(post.call_count, 2)
+
+    def test_http_stt_sends_bearer_token_when_configured(self):
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {"text": "transcribed text"}
+
+        def fake_post(endpoint, *, files, headers, timeout):
+            self.assertEqual(headers, {"Authorization": "Bearer stt-secret"})
+            return FakeResponse()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            audio_path = Path(temp_dir) / "input.wav"
+            audio_path.write_bytes(b"audio-bytes")
+
+            with patch("jks.speech.requests.post", side_effect=fake_post):
+                client = HttpSpeechClient(
+                    stt_endpoint="https://speech.test/stt",
+                    tts_endpoint="https://speech.test/tts",
+                    output_dir=Path(temp_dir),
+                    stt_token="stt-secret",
+                )
+
+                result = client.transcribe(audio_path)
+
+        self.assertEqual(result, "transcribed text")
+
+    def test_http_tts_sends_bearer_token_when_configured(self):
+        class FakeResponse:
+            content = b"audio-bytes"
+
+            def raise_for_status(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch("jks.speech.requests.post", return_value=FakeResponse()) as post:
+                client = HttpSpeechClient(
+                    stt_endpoint="https://speech.test/stt",
+                    tts_endpoint="https://speech.test/tts",
+                    output_dir=Path(temp_dir),
+                    tts_token="tts-secret",
+                )
+
+                client.synthesize("hello", "warm")
+
+        post.assert_called_once_with(
+            "https://speech.test/tts",
+            json={"text": "hello", "voice": "warm"},
+            headers={"Authorization": "Bearer tts-secret"},
+            timeout=60,
+        )
+
+    def test_fish_audio_stt_posts_audio_with_bearer_auth(self):
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {"text": "fish transcript", "duration": 1.2, "segments": []}
+
+        def fake_post(endpoint, *, files, data, headers, timeout):
+            self.assertEqual(endpoint, "https://api.fish.audio/v1/asr")
+            self.assertEqual(headers, {"Authorization": "Bearer fish-secret"})
+            self.assertEqual(data, {"ignore_timestamps": "true"})
+            self.assertEqual(timeout, 60)
+            self.assertEqual(files["audio"].read(), b"audio-bytes")
+            return FakeResponse()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            audio_path = Path(temp_dir) / "input.wav"
+            audio_path.write_bytes(b"audio-bytes")
+            with patch("jks.speech.requests.post", side_effect=fake_post):
+                client = FishAudioSpeechClient(
+                    api_key="fish-secret",
+                    output_dir=Path(temp_dir),
+                )
+                result = client.transcribe(audio_path)
+
+        self.assertEqual(result, "fish transcript")
+
+    def test_fish_audio_tts_posts_s2_payload_and_writes_mp3(self):
+        class FakeResponse:
+            content = b"mp3-bytes"
+
+            def raise_for_status(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch("jks.speech.requests.post", return_value=FakeResponse()) as post:
+                client = FishAudioSpeechClient(
+                    api_key="fish-secret",
+                    output_dir=Path(temp_dir),
+                    tts_model="s2-pro",
+                )
+                output = client.synthesize("hello", "fish-voice-id")
+                output_bytes = output.read_bytes()
+
+        self.assertEqual(output.suffix, ".mp3")
+        self.assertEqual(output_bytes, b"mp3-bytes")
+        post.assert_called_once_with(
+            "https://api.fish.audio/v1/tts",
+            json={"text": "hello", "format": "mp3", "reference_id": "fish-voice-id"},
+            headers={
+                "Authorization": "Bearer fish-secret",
+                "Content-Type": "application/json",
+                "model": "s2-pro",
+            },
+            timeout=60,
+        )
+
+    def test_fish_audio_tts_omits_default_voice_reference(self):
+        class FakeResponse:
+            content = b"mp3-bytes"
+
+            def raise_for_status(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch("jks.speech.requests.post", return_value=FakeResponse()) as post:
+                client = FishAudioSpeechClient("fish-secret", Path(temp_dir))
+                client.synthesize("hello", "default")
+
+        self.assertEqual(
+            post.call_args.kwargs["json"],
+            {"text": "hello", "format": "mp3"},
+        )
 
     def test_stt_provider_failures_are_wrapped(self):
         with tempfile.TemporaryDirectory() as temp_dir:

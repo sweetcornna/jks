@@ -14,9 +14,13 @@ def config(**overrides):
         "agent_token": "",
         "stt_provider": "",
         "stt_endpoint": "",
+        "stt_token": "",
         "tts_provider": "",
         "tts_endpoint": "",
+        "tts_token": "",
         "tts_voice": "default",
+        "fish_api_key": "",
+        "fish_tts_model": "s2-pro",
         "oled_port": "/dev/cu.usbmodem5B900048301",
         "oled_baud": 115200,
     }
@@ -41,8 +45,10 @@ class PreflightTests(unittest.TestCase):
                 agent_token="secret-token",
                 stt_provider="http",
                 stt_endpoint="http://127.0.0.1:8788/stt",
+                stt_token="stt-secret",
                 tts_provider="http",
                 tts_endpoint="http://127.0.0.1:8788/tts",
+                tts_token="tts-secret",
                 tts_voice="warm",
             )
         )
@@ -52,7 +58,40 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(summary["agent"]["mode"], "http")
         self.assertEqual(summary["agent"]["token"], "<redacted:12>")
         self.assertEqual(summary["speech"]["mode"], "http")
+        self.assertEqual(summary["speech"]["stt_token"], "<redacted:10>")
+        self.assertEqual(summary["speech"]["tts_token"], "<redacted:10>")
         self.assertEqual(summary["speech"]["voice"], "warm")
+
+    def test_fish_speech_provider_is_ready_with_api_key_and_default_endpoints(self):
+        summary = analyze_config(
+            config(
+                agent_endpoint="http://agent.local/chat",
+                stt_provider="fish",
+                tts_provider="fish",
+                fish_api_key="fish-secret",
+                tts_voice="fish-voice-id",
+            )
+        )
+
+        self.assertTrue(summary["ok"])
+        self.assertTrue(summary["ready_for_real"])
+        self.assertEqual(summary["speech"]["mode"], "fish")
+        self.assertEqual(summary["speech"]["fish_api_key"], "<redacted:11>")
+        self.assertEqual(summary["speech"]["fish_tts_model"], "s2-pro")
+
+    def test_fish_speech_provider_requires_api_key(self):
+        summary = analyze_config(
+            config(
+                agent_endpoint="http://agent.local/chat",
+                stt_provider="fish",
+                tts_provider="fish",
+                tts_voice="fish-voice-id",
+            )
+        )
+
+        self.assertFalse(summary["ok"])
+        self.assertEqual(summary["speech"]["mode"], "partial")
+        self.assertIn("JKS_FISH_API_KEY", summary["missing"])
 
     def test_agent_endpoint_with_fake_speech_is_not_ready_for_real_services(self):
         summary = analyze_config(config(agent_endpoint="http://agent.local/chat"))
@@ -124,7 +163,11 @@ class PreflightTests(unittest.TestCase):
                 agent_endpoint="http://agent.local/chat",
                 agent_token="replace-with-agent-token",
                 stt_endpoint="http://speech.local/stt",
+                stt_token="replace-with-stt-token",
                 tts_endpoint="http://speech.local/tts",
+                tts_token="replace-with-tts-token",
+                fish_api_key="replace-with-fish-api-key",
+                fish_tts_model="replace-with-fish-tts-model",
                 tts_voice="replace-with-tts-voice",
                 oled_port="replace-with-oled-port",
             )
@@ -136,6 +179,10 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(summary["speech"]["mode"], "http")
         self.assertEqual(summary["oled"]["mode"], "disabled")
         self.assertIn("JKS_AGENT_TOKEN", summary["missing"])
+        self.assertIn("JKS_STT_TOKEN", summary["missing"])
+        self.assertIn("JKS_TTS_TOKEN", summary["missing"])
+        self.assertIn("JKS_FISH_API_KEY", summary["missing"])
+        self.assertIn("JKS_FISH_TTS_MODEL", summary["missing"])
         self.assertIn("JKS_TTS_VOICE", summary["missing"])
         self.assertIn("JKS_OLED_PORT", summary["missing"])
         self.assertIn("placeholder values must be replaced before real integration", summary["warnings"])

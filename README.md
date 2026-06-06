@@ -38,8 +38,8 @@ Required real-service values:
 
 ```text
 JKS_AGENT_ENDPOINT
-JKS_STT_ENDPOINT
-JKS_TTS_ENDPOINT
+JKS_STT_PROVIDER
+JKS_TTS_PROVIDER
 JKS_TTS_VOICE
 JKS_OLED_PORT
 JKS_OLED_BAUD
@@ -60,6 +60,29 @@ JKS_AGENT_TOKEN="replace-with-hermes-api-server-key"
 `JKS_AGENT_TOKEN` must match the Hermes `API_SERVER_KEY` value. JKS sends
 `model:"hermes-agent"`, a single user message, `stream:false`, and a
 `X-Hermes-Session-Id` header for conversation continuity.
+
+### Fish Audio Speech
+
+For Fish Audio STT/TTS, set both speech providers to `fish` and keep the API
+key only in local `.env`:
+
+```dotenv
+JKS_STT_PROVIDER="fish"
+JKS_TTS_PROVIDER="fish"
+JKS_FISH_API_KEY="replace-with-fish-api-key"
+JKS_FISH_TTS_MODEL="s2-pro"
+JKS_TTS_VOICE="default"
+```
+
+`JKS_TTS_VOICE` may be a Fish Audio `reference_id` / voice model id. When it is
+`default`, JKS omits `reference_id`. Fish ASR uses `POST
+https://api.fish.audio/v1/asr` with bearer auth and an `audio` form field. Fish
+TTS uses `POST https://api.fish.audio/v1/tts`, `model:s2-pro`, and writes mp3
+audio for playback.
+
+For non-Fish HTTP speech adapters, configure `JKS_STT_ENDPOINT` and
+`JKS_TTS_ENDPOINT`. `JKS_STT_TOKEN` and `JKS_TTS_TOKEN` are optional bearer
+tokens for those custom endpoints.
 
 Run the desktop controller:
 

@@ -112,9 +112,13 @@ def sample_config(**overrides):
         "agent_token": "",
         "stt_provider": "",
         "stt_endpoint": "",
+        "stt_token": "",
         "tts_provider": "",
         "tts_endpoint": "",
+        "tts_token": "",
         "tts_voice": "warm",
+        "fish_api_key": "",
+        "fish_tts_model": "s2-pro",
         "oled_port": "/dev/cu.missing",
         "oled_baud": 115200,
     }
@@ -184,6 +188,23 @@ class AppTests(unittest.TestCase):
                 sample_config(stt_endpoint="http://stt.local"),
                 open_serial=lambda path, baud: io.BytesIO(),
             )
+
+    def test_orchestrator_builder_uses_fish_audio_provider(self):
+        from jks import app
+        from jks.speech import FishAudioSpeechClient
+
+        with tempfile.TemporaryDirectory() as tmp:
+            orchestrator = app.build_orchestrator(
+                sample_config(
+                    stt_provider="fish",
+                    tts_provider="fish",
+                    fish_api_key="fish-secret",
+                ),
+                open_serial=lambda path, baud: io.BytesIO(),
+                output_dir=Path(tmp),
+            )
+
+        self.assertIsInstance(orchestrator.speech, FishAudioSpeechClient)
 
     def test_ui_success_turn_updates_transcript_and_restores_button(self):
         from jks import app

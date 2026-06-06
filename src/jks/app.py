@@ -14,7 +14,7 @@ from .config import AppConfig, load_config
 from .display import DisplayController, NullDisplayController, open_serial_output
 from .expression import TurnState
 from .orchestrator import ConversationOrchestrator
-from .speech import FakeSpeechClient, HttpSpeechClient
+from .speech import build_speech_client
 
 
 def build_orchestrator(
@@ -40,12 +40,7 @@ def build_orchestrator(
             )
         display = NullDisplayController()
 
-    if config.stt_endpoint and config.tts_endpoint:
-        speech = HttpSpeechClient(config.stt_endpoint, config.tts_endpoint, output_dir)
-    elif not config.stt_endpoint and not config.tts_endpoint:
-        speech = FakeSpeechClient("hello agent")
-    else:
-        raise ValueError("JKS_STT_ENDPOINT and JKS_TTS_ENDPOINT must be configured together")
+    speech = build_speech_client(config, output_dir)
 
     return ConversationOrchestrator(
         recorder=recorder or AudioRecorder(),

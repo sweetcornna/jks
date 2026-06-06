@@ -77,6 +77,12 @@ def analyze_config(config: AppConfig) -> dict[str, object]:
         return True
 
     agent_token_placeholder = field_has_placeholder(config.agent_token, "JKS_AGENT_TOKEN")
+    stt_token_placeholder = field_has_placeholder(config.stt_token, "JKS_STT_TOKEN")
+    tts_token_placeholder = field_has_placeholder(config.tts_token, "JKS_TTS_TOKEN")
+    fish_api_key_placeholder = field_has_placeholder(config.fish_api_key, "JKS_FISH_API_KEY")
+    fish_tts_model_placeholder = field_has_placeholder(
+        config.fish_tts_model, "JKS_FISH_TTS_MODEL"
+    )
     tts_voice_placeholder = field_has_placeholder(config.tts_voice, "JKS_TTS_VOICE")
 
     agent_endpoint_ready = endpoint_is_ready(config.agent_endpoint, "JKS_AGENT_ENDPOINT")
@@ -87,13 +93,28 @@ def analyze_config(config: AppConfig) -> dict[str, object]:
         if not config.agent_endpoint:
             add_missing("JKS_AGENT_ENDPOINT")
 
+    stt_provider = config.stt_provider.lower()
+    tts_provider = config.tts_provider.lower()
+    wants_fish_speech = stt_provider == "fish" or tts_provider == "fish"
     stt_endpoint_ready = endpoint_is_ready(config.stt_endpoint, "JKS_STT_ENDPOINT")
     tts_endpoint_ready = endpoint_is_ready(config.tts_endpoint, "JKS_TTS_ENDPOINT")
-    wants_http_stt = config.stt_provider.lower() == "http" or bool(config.stt_endpoint)
-    wants_http_tts = config.tts_provider.lower() == "http" or bool(config.tts_endpoint)
+    wants_http_stt = stt_provider == "http" or bool(config.stt_endpoint)
+    wants_http_tts = tts_provider == "http" or bool(config.tts_endpoint)
     wants_http_speech = wants_http_stt or wants_http_tts
 
-    if stt_endpoint_ready and tts_endpoint_ready:
+    if wants_fish_speech:
+        if stt_provider == "fish" and tts_provider == "fish" and config.fish_api_key:
+            speech_mode = "fish"
+        else:
+            speech_mode = "partial"
+            if stt_provider != "fish":
+                add_missing("JKS_STT_PROVIDER")
+            if tts_provider != "fish":
+                add_missing("JKS_TTS_PROVIDER")
+            if not config.fish_api_key or fish_api_key_placeholder:
+                add_missing("JKS_FISH_API_KEY")
+            add_warning("Fish Audio integration requires both speech providers set to fish")
+    elif stt_endpoint_ready and tts_endpoint_ready:
         speech_mode = "http"
     elif not wants_http_speech:
         speech_mode = "fake"
@@ -117,9 +138,13 @@ def analyze_config(config: AppConfig) -> dict[str, object]:
 
     ready_for_real = (
         agent_mode == "http"
-        and speech_mode == "http"
+        and speech_mode in {"http", "fish"}
         and oled_mode == "serial"
         and not agent_token_placeholder
+        and not stt_token_placeholder
+        and not tts_token_placeholder
+        and not fish_api_key_placeholder
+        and not fish_tts_model_placeholder
         and not tts_voice_placeholder
     )
     ok = ready_for_real
@@ -138,8 +163,12 @@ def analyze_config(config: AppConfig) -> dict[str, object]:
             "mode": speech_mode,
             "stt_provider": config.stt_provider,
             "stt_endpoint": redact_url(config.stt_endpoint),
+            "stt_token": redact_secret(config.stt_token),
             "tts_provider": config.tts_provider,
             "tts_endpoint": redact_url(config.tts_endpoint),
+            "tts_token": redact_secret(config.tts_token),
+            "fish_api_key": redact_secret(config.fish_api_key),
+            "fish_tts_model": config.fish_tts_model,
             "voice": config.tts_voice,
         },
         "oled": {

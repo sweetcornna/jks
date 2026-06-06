@@ -15,8 +15,12 @@ class AppConfig:
     agent_token: str
     stt_provider: str
     stt_endpoint: str
+    stt_token: str
     tts_provider: str
     tts_endpoint: str
+    tts_token: str
+    fish_api_key: str
+    fish_tts_model: str
     tts_voice: str
     oled_port: str
     oled_baud: int
@@ -76,8 +80,12 @@ def load_config(env_file: Optional[Union[os.PathLike[str], str]] = ".env") -> Ap
         agent_token=settings.get("JKS_AGENT_TOKEN", ""),
         stt_provider=settings.get("JKS_STT_PROVIDER", ""),
         stt_endpoint=settings.get("JKS_STT_ENDPOINT", ""),
+        stt_token=settings.get("JKS_STT_TOKEN", ""),
         tts_provider=settings.get("JKS_TTS_PROVIDER", ""),
         tts_endpoint=settings.get("JKS_TTS_ENDPOINT", ""),
+        tts_token=settings.get("JKS_TTS_TOKEN", ""),
+        fish_api_key=settings.get("JKS_FISH_API_KEY", settings.get("FISH_API_KEY", "")),
+        fish_tts_model=settings.get("JKS_FISH_TTS_MODEL", "s2-pro"),
         tts_voice=settings.get("JKS_TTS_VOICE", "default"),
         oled_port=settings.get("JKS_OLED_PORT", "/dev/cu.usbmodem5B900048301"),
         oled_baud=_int_setting(settings, "JKS_OLED_BAUD", 115200),
