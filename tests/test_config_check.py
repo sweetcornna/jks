@@ -40,6 +40,24 @@ class ConfigCheckCliTests(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertIn("JKS_AGENT_ENDPOINT", payload["missing"])
 
+    def test_main_returns_one_when_agent_endpoint_has_fake_speech(self):
+        output = io.StringIO()
+
+        with patch.dict(
+            os.environ,
+            {"JKS_AGENT_ENDPOINT": "http://127.0.0.1:8787/chat"},
+            clear=True,
+        ):
+            exit_code = main([], stdout=output)
+
+        self.assertEqual(exit_code, 1)
+        payload = json.loads(output.getvalue())
+        self.assertFalse(payload["ok"])
+        self.assertFalse(payload["ready_for_real"])
+        self.assertEqual(payload["speech"]["mode"], "fake")
+        self.assertIn("JKS_STT_ENDPOINT", payload["missing"])
+        self.assertIn("JKS_TTS_ENDPOINT", payload["missing"])
+
     def test_main_prints_json_when_config_loading_fails(self):
         output = io.StringIO()
 

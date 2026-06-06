@@ -38,33 +38,48 @@ def analyze_config(config: AppConfig) -> dict[str, object]:
     missing: list[str] = []
     warnings: list[str] = []
 
+    def add_missing(name: str) -> None:
+        if name not in missing:
+            missing.append(name)
+
     if config.agent_endpoint:
         agent_mode = "http"
     else:
         agent_mode = "missing"
-        missing.append("JKS_AGENT_ENDPOINT")
+        add_missing("JKS_AGENT_ENDPOINT")
 
     has_stt = bool(config.stt_endpoint)
     has_tts = bool(config.tts_endpoint)
+    wants_http_stt = config.stt_provider.lower() == "http" or has_stt
+    wants_http_tts = config.tts_provider.lower() == "http" or has_tts
+    wants_http_speech = wants_http_stt or wants_http_tts
+
     if has_stt and has_tts:
         speech_mode = "http"
-    elif not has_stt and not has_tts:
+    elif not wants_http_speech:
         speech_mode = "fake"
     else:
         speech_mode = "partial"
         if not has_stt:
-            missing.append("JKS_STT_ENDPOINT")
+            add_missing("JKS_STT_ENDPOINT")
         if not has_tts:
-            missing.append("JKS_TTS_ENDPOINT")
+            add_missing("JKS_TTS_ENDPOINT")
         warnings.append("JKS_STT_ENDPOINT and JKS_TTS_ENDPOINT must be configured together")
+
+    if agent_mode == "http" and speech_mode == "fake":
+        add_missing("JKS_STT_ENDPOINT")
+        add_missing("JKS_TTS_ENDPOINT")
+        warnings.append("Real agent integration requires JKS_STT_ENDPOINT and JKS_TTS_ENDPOINT")
 
     oled_mode = "serial" if config.oled_port else "disabled"
     if not config.oled_port:
-        missing.append("JKS_OLED_PORT")
+        add_missing("JKS_OLED_PORT")
 
-    ok = agent_mode == "http" and speech_mode in {"http", "fake"} and oled_mode == "serial"
+    ready_for_real = agent_mode == "http" and speech_mode == "http" and oled_mode == "serial"
+    ok = ready_for_real
     return {
         "ok": ok,
+        "ready_for_real": ready_for_real,
         "agent": {
             "mode": agent_mode,
             "endpoint": redact_url(config.agent_endpoint),

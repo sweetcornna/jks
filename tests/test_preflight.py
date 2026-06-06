@@ -48,10 +48,39 @@ class PreflightTests(unittest.TestCase):
         )
 
         self.assertTrue(summary["ok"])
+        self.assertTrue(summary["ready_for_real"])
         self.assertEqual(summary["agent"]["mode"], "http")
         self.assertEqual(summary["agent"]["token"], "<redacted:12>")
         self.assertEqual(summary["speech"]["mode"], "http")
         self.assertEqual(summary["speech"]["voice"], "warm")
+
+    def test_agent_endpoint_with_fake_speech_is_not_ready_for_real_services(self):
+        summary = analyze_config(config(agent_endpoint="http://agent.local/chat"))
+
+        self.assertFalse(summary["ok"])
+        self.assertFalse(summary["ready_for_real"])
+        self.assertEqual(summary["agent"]["mode"], "http")
+        self.assertEqual(summary["speech"]["mode"], "fake")
+        self.assertIn("JKS_STT_ENDPOINT", summary["missing"])
+        self.assertIn("JKS_TTS_ENDPOINT", summary["missing"])
+        self.assertIn(
+            "Real agent integration requires JKS_STT_ENDPOINT and JKS_TTS_ENDPOINT",
+            summary["warnings"],
+        )
+
+    def test_http_speech_provider_without_endpoints_reports_partial(self):
+        summary = analyze_config(
+            config(
+                agent_endpoint="http://agent.local/chat",
+                stt_provider="http",
+                tts_provider="http",
+            )
+        )
+
+        self.assertFalse(summary["ok"])
+        self.assertEqual(summary["speech"]["mode"], "partial")
+        self.assertIn("JKS_STT_ENDPOINT", summary["missing"])
+        self.assertIn("JKS_TTS_ENDPOINT", summary["missing"])
 
     def test_partial_speech_config_reports_missing_pair(self):
         cases = [
