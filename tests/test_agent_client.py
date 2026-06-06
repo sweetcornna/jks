@@ -36,6 +36,193 @@ class AgentClientTests(unittest.TestCase):
             ),
         )
 
+    def test_parse_openai_like_choice_message_content(self):
+        reply = parse_agent_reply(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "choice answer",
+                        }
+                    }
+                ]
+            }
+        )
+
+        self.assertEqual(reply, AgentReply(text="choice answer"))
+
+    def test_parse_nested_result_output_envelope(self):
+        reply = parse_agent_reply(
+            {
+                "result": {
+                    "output": {
+                        "message": "nested answer",
+                        "display": {
+                            "emotion": "thinking",
+                            "text": "WAIT",
+                            "duration_ms": 1400,
+                            "intensity": "normal",
+                        },
+                    }
+                }
+            }
+        )
+
+        self.assertEqual(
+            reply,
+            AgentReply(
+                text="nested answer",
+                emotion="thinking",
+                display_text="WAIT",
+                duration_ms=1400,
+                intensity="normal",
+            ),
+        )
+
+    def test_parse_messages_list_uses_last_assistant_message(self):
+        reply = parse_agent_reply(
+            {
+                "messages": [
+                    {"role": "user", "content": "hello"},
+                    {"role": "assistant", "content": [{"type": "text", "text": "first"}]},
+                    {"role": "assistant", "content": [{"type": "text", "text": "second"}]},
+                ]
+            }
+        )
+
+        self.assertEqual(reply, AgentReply(text="second"))
+
+    def test_parse_response_content_parts(self):
+        reply = parse_agent_reply(
+            {
+                "response": {
+                    "content": [
+                        {"type": "text", "text": "hello"},
+                        {"type": "text", "text": " world"},
+                    ]
+                }
+            }
+        )
+
+        self.assertEqual(reply, AgentReply(text="hello world"))
+
+    def test_nested_unsupported_dict_is_not_stringified(self):
+        reply = parse_agent_reply(
+            {
+                "result": {
+                    "message": {
+                        "role": "assistant",
+                        "tool_calls": [{"text": "BAD"}],
+                    }
+                }
+            }
+        )
+
+        self.assertEqual(reply, AgentReply(text=""))
+
+    def test_unknown_content_parts_are_ignored(self):
+        reply = parse_agent_reply(
+            {
+                "response": {
+                    "content": [
+                        {"type": "tool_call", "text": "BAD"},
+                        {"type": "text", "text": "ok"},
+                    ]
+                }
+            }
+        )
+
+        self.assertEqual(reply, AgentReply(text="ok"))
+
+    def test_unsupported_direct_message_falls_back_to_choices(self):
+        reply = parse_agent_reply(
+            {
+                "message": {"role": "assistant", "tool_calls": [{"text": "BAD"}]},
+                "choices": [{"message": {"content": "safe fallback"}}],
+            }
+        )
+
+        self.assertEqual(reply, AgentReply(text="safe fallback"))
+
+    def test_top_level_text_dict_keeps_legacy_stringifying_behavior(self):
+        reply = parse_agent_reply({"text": {"unexpected": "payload"}})
+
+        self.assertEqual(reply, AgentReply(text="{'unexpected': 'payload'}"))
+
+    def test_top_level_text_dict_does_not_parse_nested_text_key(self):
+        reply = parse_agent_reply({"text": {"text": "inner"}})
+
+        self.assertEqual(reply, AgentReply(text="{'text': 'inner'}"))
+
+    def test_unknown_content_part_with_content_is_ignored(self):
+        reply = parse_agent_reply(
+            {
+                "response": {
+                    "content": [
+                        {"type": "tool_call", "content": {"text": "BAD"}},
+                        {"type": "text", "text": "ok"},
+                    ]
+                }
+            }
+        )
+
+        self.assertEqual(reply, AgentReply(text="ok"))
+
+    def test_text_content_part_with_unsupported_dict_text_is_ignored(self):
+        reply = parse_agent_reply(
+            {
+                "response": {
+                    "content": [
+                        {"type": "text", "text": {"tool_calls": [{"text": "BAD"}]}},
+                        {"type": "text", "text": "ok"},
+                    ]
+                }
+            }
+        )
+
+        self.assertEqual(reply, AgentReply(text="ok"))
+
+    def test_text_content_part_with_nested_text_dict_is_ignored(self):
+        reply = parse_agent_reply(
+            {
+                "response": {
+                    "content": [
+                        {"type": "text", "text": {"text": "BAD"}},
+                        {"type": "text", "text": "ok"},
+                    ]
+                }
+            }
+        )
+
+        self.assertEqual(reply, AgentReply(text="ok"))
+
+    def test_content_part_without_type_is_ignored(self):
+        reply = parse_agent_reply(
+            {
+                "response": {
+                    "content": [
+                        {"content": {"text": "BAD"}},
+                        {"text": "maybe"},
+                        {"type": "text", "text": "ok"},
+                    ]
+                }
+            }
+        )
+
+        self.assertEqual(reply, AgentReply(text="ok"))
+
+    def test_outer_display_fields_survive_envelope_unwrap(self):
+        reply = parse_agent_reply(
+            {
+                "emotion": "happy",
+                "display_text": "DONE",
+                "data": {"text": "answer"},
+            }
+        )
+
+        self.assertEqual(reply, AgentReply(text="answer", emotion="happy", display_text="DONE"))
+
     def test_parse_structured_reply_accepts_reply_field(self):
         reply = parse_agent_reply({"reply": "fallback", "emotion": "thinking"})
 

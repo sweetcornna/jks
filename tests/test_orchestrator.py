@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 
-from jks.agent import AgentReply
+from jks.agent import AgentReply, parse_agent_reply
 from jks.display import DisplayIntent
 from jks.expression import ExpressionEngine
 from jks.orchestrator import ConversationOrchestrator
@@ -172,6 +172,45 @@ class OrchestratorTests(unittest.TestCase):
             DisplayIntent(
                 emotion="surprised",
                 text="AGENT SAYS TOO",
+                duration_ms=5000,
+                intensity="normal",
+            ),
+        )
+
+    def test_parsed_nested_display_intent_is_still_clamped_by_expression(self):
+        display = FakeDisplay()
+        orchestrator = ConversationOrchestrator(
+            recorder=FakeRecorder(),
+            speech=FakeSpeech(),
+            agent=FakeAgent(
+                reply=parse_agent_reply(
+                    {
+                        "result": {
+                            "text": "reply",
+                            "display_intent": {
+                                "emotion": "made-up",
+                                "display_text": "THIS TEXT IS FAR TOO LONG FOR OLED",
+                                "duration_ms": 999999,
+                                "intensity": "unsafe",
+                            },
+                        }
+                    }
+                )
+            ),
+            display=display,
+            player=FakePlayer(),
+            voice="warm",
+        )
+
+        result = orchestrator.run_voice_turn()
+
+        self.assertEqual(result.agent_text, "reply")
+        self.assertEqual(result.emotion, "neutral")
+        self.assertEqual(
+            display.intents[-1],
+            DisplayIntent(
+                emotion="neutral",
+                text="THIS TEXT IS F",
                 duration_ms=5000,
                 intensity="normal",
             ),
