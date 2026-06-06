@@ -57,8 +57,8 @@ uv run python -m tools.oled_smoke
 Expected:
 
 - `jks_smoke`: `ok:true`
-- `jks_agent_probe`: `ok:true`
-- `jks_config_check`: `ok:true`
+- `jks_agent_probe`: `ok:true`, default output does not include SSH host/user or tokens
+- `jks_config_check`: `ok:true`, default output is a safe summary without endpoint, SSH host/user, OLED port, runtime path, or token values
 - `jks_mic_probe`: `ok:true`, non-zero `rms` / `peak`
 - `jks_contract_probe`: `ok:true`
 - `jks_turn_probe`: `server_events:["stt","chat","tts"]`
@@ -67,8 +67,9 @@ Expected:
 - `jks_gui_probe`: `gui.clicks:2`, `gui.status:"Ready"`, `server_events:["stt","chat","tts"]`, `playback.played:true`
 - `oled_smoke`: `ok:true`
 
-`jks_turn_probe` prints text lengths by default, not full transcripts. Add
-`--verbose` only when local transcript logging is acceptable.
+`jks_turn_probe` prints text lengths by default, not full transcripts. The
+preflight block in probe output is also summarized by default. Add `--verbose`
+only when local transcript logging is acceptable.
 `oled_smoke` reads `JKS_OLED_PORT` and `JKS_OLED_BAUD`; add `--hold-ms 2000`
 when capturing visual evidence.
 

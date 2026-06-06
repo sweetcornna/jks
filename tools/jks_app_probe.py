@@ -15,7 +15,7 @@ from jks.audio import AudioPlayer
 from jks.config import load_config
 from jks.display import open_serial_output
 from jks.preflight import analyze_config
-from tools.jks_probe_summary import summarize_agent_reply
+from tools.jks_probe_summary import summarize_agent_reply, summarize_preflight
 
 
 DEFAULT_DISPLAY_ACK_TIMEOUT = 2.5
@@ -333,7 +333,7 @@ def run_app_probe(argv: Sequence[str]) -> dict[str, object]:
 
     config = load_config()
     preflight = analyze_config(config)
-    summary["preflight"] = preflight
+    summary["preflight"] = summarize_preflight(preflight)
     if not preflight.get("ok"):
         return summary
 

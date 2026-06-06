@@ -13,7 +13,7 @@ from jks.agent import build_agent_client
 from jks.config import load_config
 from jks.preflight import analyze_config
 from jks.speech import build_speech_client
-from tools.jks_probe_summary import summarize_agent_reply
+from tools.jks_probe_summary import summarize_agent_reply, summarize_preflight
 
 
 def _write_silent_wav(path: Path) -> None:
@@ -29,7 +29,7 @@ def run_probe() -> dict[str, object]:
     preflight = analyze_config(config)
     summary: dict[str, object] = {
         "ok": False,
-        "preflight": preflight,
+        "preflight": summarize_preflight(preflight),
         "checks": {},
         "errors": [],
     }

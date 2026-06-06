@@ -16,7 +16,7 @@ from jks.display import DisplayController, DisplayIntent, open_serial_output
 from jks.expression import ExpressionEngine, TurnState
 from jks.preflight import analyze_config
 from jks.speech import build_speech_client
-from tools.jks_probe_summary import summarize_agent_reply
+from tools.jks_probe_summary import summarize_agent_reply, summarize_preflight
 
 
 DISPLAY_ACK_TIMEOUT = 2.5
@@ -222,7 +222,7 @@ def run_turn_probe(argv: Sequence[str]) -> dict[str, object]:
 
     config = load_config()
     preflight = analyze_config(config)
-    summary["preflight"] = preflight
+    summary["preflight"] = summarize_preflight(preflight)
     if not preflight.get("ok"):
         return summary
 

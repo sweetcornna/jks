@@ -9,8 +9,7 @@ from urllib.parse import urlsplit
 
 from jks.agent import build_agent_client
 from jks.config import load_config
-from jks.preflight import redact_secret, redact_url
-from tools.jks_probe_summary import summarize_agent_reply
+from tools.jks_probe_summary import summarize_agent_config, summarize_agent_reply
 
 
 def _is_http_url(value: str) -> bool:
@@ -37,14 +36,7 @@ def _empty_summary() -> dict[str, object]:
 def run_probe() -> dict[str, object]:
     config = load_config()
     summary = _empty_summary()
-    summary["agent"] = {
-        "endpoint": redact_url(config.agent_endpoint),
-        "host": config.agent_host,
-        "user": config.agent_user,
-        "token": redact_secret(config.agent_token),
-        "ssh_password": redact_secret(config.agent_ssh_password),
-        "model": config.agent_model,
-    }
+    summary["agent"] = summarize_agent_config(config)
 
     can_use_http = config.agent_endpoint and not _is_placeholder(config.agent_endpoint)
     can_use_ssh = config.agent_host and not _is_placeholder(config.agent_host)

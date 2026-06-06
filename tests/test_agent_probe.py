@@ -184,7 +184,12 @@ class AgentProbeTests(unittest.TestCase):
         self.assertEqual(payload["checks"]["agent"]["emotion"], "happy")
         self.assertEqual(payload["checks"]["agent"]["display_text_length"], 2)
         self.assertNotIn("ssh-secret", text)
+        self.assertNotIn("gran.example.com", text)
+        self.assertNotIn("jks", text)
         self.assertNotIn("replace-with-agent-token", text)
+        self.assertEqual(payload["agent"]["mode"], "ssh")
+        self.assertTrue(payload["agent"]["host_present"])
+        self.assertTrue(payload["agent"]["ssh_password_present"])
         command = run.call_args.args[0]
         self.assertEqual(command[:3], ["sshpass", "-e", "ssh"])
         self.assertNotIn("ssh-secret", " ".join(command))

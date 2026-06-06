@@ -22,7 +22,7 @@ def clean_cwd():
 
 
 class ConfigCheckCliTests(unittest.TestCase):
-    def test_main_prints_compact_redacted_json(self):
+    def test_main_prints_compact_secret_safe_json(self):
         env = {
             "JKS_AGENT_ENDPOINT": "http://127.0.0.1:8787/chat",
             "JKS_AGENT_TOKEN": "secret-token",
@@ -37,11 +37,56 @@ class ConfigCheckCliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         text = output.getvalue()
         self.assertNotIn("secret-token", text)
-        self.assertIn("<redacted:12>", text)
+        self.assertNotIn("127.0.0.1:8787", text)
+        self.assertNotIn("127.0.0.1:8788", text)
         self.assertNotIn(": ", text)
         payload = json.loads(text)
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["agent"]["token"], "<redacted:12>")
+        self.assertEqual(payload["agent"]["mode"], "http")
+        self.assertTrue(payload["agent"]["endpoint_present"])
+        self.assertTrue(payload["agent"]["token_present"])
+        self.assertEqual(payload["speech"]["mode"], "http")
+        self.assertTrue(payload["speech"]["stt_endpoint_present"])
+        self.assertTrue(payload["speech"]["tts_endpoint_present"])
+
+    def test_main_does_not_print_ssh_host_user_or_runtime_paths_by_default(self):
+        env = {
+            "JKS_AGENT_HOST": "gran.example.com",
+            "JKS_AGENT_USER": "jks-user",
+            "JKS_AGENT_AUTH_METHOD": "ssh-password",
+            "JKS_AGENT_SSH_PASSWORD": "ssh-secret",
+            "JKS_AGENT_COMMAND": "/private/hermes/bin/hermes",
+            "JKS_AGENT_WORKDIR": "/private/hermes",
+            "JKS_STT_PROVIDER": "fish",
+            "JKS_TTS_PROVIDER": "fish",
+            "JKS_FISH_API_KEY": "fish-secret",
+            "JKS_OLED_PORT": "/dev/cu.private",
+        }
+        output = io.StringIO()
+
+        with clean_cwd(), patch.dict(os.environ, env, clear=True):
+            exit_code = main([], stdout=output)
+
+        text = output.getvalue()
+        payload = json.loads(text)
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(payload["ok"])
+        for private_value in (
+            "gran.example.com",
+            "jks-user",
+            "ssh-secret",
+            "/private/hermes",
+            "fish-secret",
+            "/dev/cu.private",
+        ):
+            self.assertNotIn(private_value, text)
+        self.assertEqual(payload["agent"]["mode"], "ssh")
+        self.assertTrue(payload["agent"]["host_present"])
+        self.assertTrue(payload["agent"]["ssh_password_present"])
+        self.assertEqual(payload["speech"]["mode"], "fish")
+        self.assertTrue(payload["speech"]["fish_api_key_present"])
+        self.assertEqual(payload["oled"]["mode"], "serial")
+        self.assertTrue(payload["oled"]["port_present"])
 
     def test_main_returns_one_when_required_agent_endpoint_is_missing(self):
         output = io.StringIO()

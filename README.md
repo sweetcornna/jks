@@ -146,6 +146,11 @@ Check configuration readiness without printing secrets:
 uv run python -m tools.jks_config_check
 ```
 
+The default JSON is a safe summary: it reports modes, configured booleans,
+missing keys, and warnings without printing endpoints, SSH hosts, usernames,
+runtime paths, OLED ports, or tokens. For local-only debugging, add
+`--verbose` to print the fuller redacted preflight structure.
+
 Probe configured real contracts:
 
 ```bash
@@ -198,8 +203,9 @@ uv run python -m tools.jks_gui_probe --audio /path/to/input.wav --require-displa
 ```
 
 By default, the turn probe prints text lengths instead of full transcripts so
-real user speech is not copied into logs. Add `--verbose` only for local
-debugging when transcript output is safe:
+real user speech is not copied into logs. Probe preflight output is also a safe
+summary by default. Add `--verbose` only for local debugging when transcript
+output is safe:
 
 ```bash
 uv run python -m tools.jks_turn_probe --audio /path/to/input.wav --verbose
