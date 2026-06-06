@@ -554,6 +554,38 @@ class AgentClientTests(unittest.TestCase):
             with self.assertRaisesRegex(AgentProviderError, "hermes ssh request failed"):
                 client.send_message("hello", "conv-1")
 
+    def test_ssh_hermes_client_retries_transient_subprocess_failure(self):
+        completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="retry reply", stderr="")
+
+        with patch(
+            "jks.agent.subprocess.run",
+            side_effect=[
+                subprocess.CalledProcessError(255, ["ssh"], stderr="connection reset"),
+                completed,
+            ],
+        ) as run:
+            client = SshHermesAgentClient(host="gran.local", user="")
+            reply = client.send_message("hello", "conv-1")
+
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(reply, AgentReply(text="retry reply"))
+
+    def test_build_agent_client_uses_longer_default_timeout_for_ssh_hermes(self):
+        class Config:
+            agent_endpoint = ""
+            agent_token = ""
+            agent_model = "hermes-agent"
+            agent_host = "gran.example.com"
+            agent_user = "jks"
+            agent_ssh_password = ""
+            agent_command = "/usr/local/bin/hermes"
+            agent_workdir = "/srv/hermes"
+
+        client = build_agent_client(Config())
+
+        self.assertIsInstance(client, SshHermesAgentClient)
+        self.assertGreaterEqual(client.timeout, 90.0)
+
     def test_build_agent_client_prefers_http_endpoint_over_ssh_host(self):
         class Config:
             agent_endpoint = "http://agent.local/chat"

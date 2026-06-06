@@ -297,6 +297,7 @@ class SshHermesAgentClient:
         command: str = "/usr/local/lib/hermes-agent/venv/bin/hermes",
         workdir: str = "/usr/local/lib/hermes-agent",
         timeout: float = 120.0,
+        retries: int = 1,
         model: str = "",
     ):
         self.host = host
@@ -305,6 +306,7 @@ class SshHermesAgentClient:
         self.command = command or "/usr/local/lib/hermes-agent/venv/bin/hermes"
         self.workdir = workdir or "/usr/local/lib/hermes-agent"
         self.timeout = timeout
+        self.retries = max(0, retries)
         self.model = model
 
     def send_message(self, text: str, conversation_id: str) -> AgentReply:
@@ -336,17 +338,23 @@ class SshHermesAgentClient:
         else:
             env.pop("SSHPASS", None)
 
-        try:
-            completed = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=self.timeout,
-                env=env,
-            )
-        except Exception as exc:
-            raise AgentProviderError("hermes ssh request failed") from exc
+        for attempt in range(self.retries + 1):
+            try:
+                completed = subprocess.run(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=self.timeout,
+                    env=env,
+                )
+                break
+            except subprocess.CalledProcessError as exc:
+                if exc.returncode == 255 and attempt < self.retries:
+                    continue
+                raise AgentProviderError("hermes ssh request failed") from exc
+            except Exception as exc:
+                raise AgentProviderError("hermes ssh request failed") from exc
 
         reply = parse_agent_reply(completed.stdout.strip())
         if not reply.text.strip():
@@ -365,7 +373,7 @@ def _uses_openai_chat_completions(endpoint: str) -> bool:
     return path.endswith("/v1/chat/completions")
 
 
-def build_agent_client(config, timeout: float = 30.0):
+def build_agent_client(config, timeout: float = 120.0):
     endpoint = getattr(config, "agent_endpoint", "")
     if endpoint and not _is_placeholder(endpoint):
         return HttpAgentClient(
