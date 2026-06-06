@@ -33,6 +33,7 @@ def summarize_preflight(preflight: Mapping[str, object]) -> dict[str, object]:
     oled = _mapping(preflight.get("oled"))
     missing = _list(preflight.get("missing"))
     warnings = _list(preflight.get("warnings"))
+    voice = _string(speech.get("voice"))
     return {
         "ok": bool(preflight.get("ok")),
         "ready_for_real": bool(preflight.get("ready_for_real", preflight.get("ok"))),
@@ -55,7 +56,8 @@ def summarize_preflight(preflight: Mapping[str, object]) -> dict[str, object]:
             "tts_token_present": bool(speech.get("tts_token")),
             "fish_api_key_present": bool(speech.get("fish_api_key")),
             "fish_tts_model": _string(speech.get("fish_tts_model")),
-            "voice": _string(speech.get("voice")),
+            "voice_present": bool(voice),
+            "voice_custom": bool(voice and voice != "default"),
         },
         "oled": {
             "mode": _string(oled.get("mode")),

@@ -60,6 +60,7 @@ class ConfigCheckCliTests(unittest.TestCase):
             "JKS_STT_PROVIDER": "fish",
             "JKS_TTS_PROVIDER": "fish",
             "JKS_FISH_API_KEY": "fish-secret",
+            "JKS_TTS_VOICE": "fish-reference-id-secret",
             "JKS_OLED_PORT": "/dev/cu.private",
         }
         output = io.StringIO()
@@ -77,6 +78,7 @@ class ConfigCheckCliTests(unittest.TestCase):
             "ssh-secret",
             "/private/hermes",
             "fish-secret",
+            "fish-reference-id-secret",
             "/dev/cu.private",
         ):
             self.assertNotIn(private_value, text)
@@ -85,6 +87,9 @@ class ConfigCheckCliTests(unittest.TestCase):
         self.assertTrue(payload["agent"]["ssh_password_present"])
         self.assertEqual(payload["speech"]["mode"], "fish")
         self.assertTrue(payload["speech"]["fish_api_key_present"])
+        self.assertTrue(payload["speech"]["voice_present"])
+        self.assertTrue(payload["speech"]["voice_custom"])
+        self.assertNotIn("voice", payload["speech"])
         self.assertEqual(payload["oled"]["mode"], "serial")
         self.assertTrue(payload["oled"]["port_present"])
 
