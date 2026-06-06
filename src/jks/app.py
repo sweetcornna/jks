@@ -56,6 +56,7 @@ class JksApp:
         self.status = tk.StringVar(value="Ready")
         self.transcript = tk.StringVar(value="")
         self.orchestrator = orchestrator or build_orchestrator(load_config())
+        self._recording = False
 
         self.button = ttk.Button(root, text="Speak", command=self.start_turn)
         self.button.pack(padx=16, pady=12)
@@ -63,27 +64,49 @@ class JksApp:
         ttk.Label(root, textvariable=self.transcript, wraplength=420).pack(padx=16, pady=12)
 
     def start_turn(self) -> None:
+        if not self._recording:
+            self._start_recording()
+            return
+
+        self._stop_and_run_turn()
+
+    def _start_recording(self) -> None:
         self.button.configure(state="disabled")
         self.status.set("Listening")
+        try:
+            self.orchestrator.start_recording()
+        except Exception as exc:
+            self._finish_error(exc)
+            return
+
+        self._recording = True
+        self.button.configure(text="Stop", state="normal")
+
+    def _stop_and_run_turn(self) -> None:
+        self._recording = False
+        self.button.configure(state="disabled")
+        self.status.set("Thinking")
         thread = threading.Thread(target=self._run_turn, daemon=True)
         thread.start()
 
     def _run_turn(self) -> None:
         try:
-            result = self.orchestrator.run_voice_turn()
+            result = self.orchestrator.finish_voice_turn()
         except Exception as exc:
             self.root.after(0, lambda exc=exc: self._finish_error(exc))
             return
         self.root.after(0, lambda: self._finish_success(result.user_text, result.agent_text))
 
     def _finish_success(self, user_text: str, agent_text: str) -> None:
+        self._recording = False
         self.status.set("Ready")
         self.transcript.set(f"You: {user_text}\nAgent: {agent_text}")
-        self.button.configure(state="normal")
+        self.button.configure(text="Speak", state="normal")
 
     def _finish_error(self, exc: Exception) -> None:
+        self._recording = False
         self.status.set(f"Error: {exc}")
-        self.button.configure(state="normal")
+        self.button.configure(text="Speak", state="normal")
 
 
 def _print_help(stdout: TextIO) -> None:

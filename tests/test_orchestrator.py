@@ -5,7 +5,7 @@ import unittest
 
 from jks.agent import AgentReply, parse_agent_reply
 from jks.display import DisplayIntent
-from jks.expression import ExpressionEngine
+from jks.expression import ExpressionEngine, TurnState
 from jks.orchestrator import ConversationOrchestrator
 
 
@@ -19,6 +19,25 @@ class FakeRecorder:
         if self.fail:
             raise RuntimeError("recorder failed")
         return Path("/tmp/jks-test-input.wav")
+
+
+class ToggleRecorder:
+    def __init__(self, fail_start=False, fail_stop=False):
+        self.fail_start = fail_start
+        self.fail_stop = fail_stop
+        self.starts = 0
+        self.stops = 0
+
+    def start_recording(self):
+        self.starts += 1
+        if self.fail_start:
+            raise RuntimeError("start failed")
+
+    def stop_recording(self):
+        self.stops += 1
+        if self.fail_stop:
+            raise RuntimeError("stop failed")
+        return Path("/tmp/jks-toggle-input.wav")
 
 
 class FakeSpeech:
@@ -132,6 +151,74 @@ class OrchestratorTests(unittest.TestCase):
         self.assertEqual(player.played, [Path("/tmp/jks-test-reply.wav")])
         self.assertEqual(orchestrator.agent.messages, ["hello"])
         self.assertEqual(orchestrator.speech.synthesized, [("reply", "warm")])
+        self.assertEqual(orchestrator.state, TurnState.IDLE)
+
+    def test_start_and_finish_voice_turn_support_button_toggle_recording(self):
+        display = FakeDisplay()
+        recorder = ToggleRecorder()
+        orchestrator = ConversationOrchestrator(
+            recorder=recorder,
+            speech=FakeSpeech(user_text="hello"),
+            agent=FakeAgent(reply=AgentReply(text="reply", emotion="happy")),
+            display=display,
+            player=FakePlayer(),
+            voice="warm",
+        )
+
+        orchestrator.start_recording()
+        result = orchestrator.finish_voice_turn()
+
+        self.assertEqual(recorder.starts, 1)
+        self.assertEqual(recorder.stops, 1)
+        self.assertEqual(result.user_text, "hello")
+        self.assertEqual(result.agent_text, "reply")
+        self.assertEqual(
+            [(intent.emotion, intent.text) for intent in display.intents],
+            [
+                ("listening", "HEAR"),
+                ("thinking", "TEXT"),
+                ("thinking", "WAIT"),
+                ("speaking", "TALK"),
+                ("happy", "DONE"),
+            ],
+        )
+        self.assertEqual(orchestrator.state, TurnState.IDLE)
+
+    def test_recording_toggle_rejects_invalid_or_overlapping_turns(self):
+        orchestrator = ConversationOrchestrator(
+            recorder=ToggleRecorder(),
+            speech=FakeSpeech(),
+            agent=FakeAgent(),
+            display=FakeDisplay(),
+            player=FakePlayer(),
+            voice="warm",
+        )
+
+        with self.assertRaises(RuntimeError):
+            orchestrator.finish_voice_turn()
+
+        orchestrator.start_recording()
+        with self.assertRaises(RuntimeError):
+            orchestrator.start_recording()
+
+    def test_recording_toggle_failure_shows_error_and_allows_retry(self):
+        display = FakeDisplay()
+        recorder = ToggleRecorder(fail_stop=True)
+        orchestrator = ConversationOrchestrator(
+            recorder=recorder,
+            speech=FakeSpeech(),
+            agent=FakeAgent(),
+            display=display,
+            player=FakePlayer(),
+            voice="warm",
+        )
+
+        orchestrator.start_recording()
+        with self.assertRaisesRegex(RuntimeError, "stop failed"):
+            orchestrator.finish_voice_turn()
+
+        self.assertEqual(display.intents[-1], DisplayIntent(emotion="error", text="OOPS"))
+        self.assertEqual(orchestrator.state, TurnState.IDLE)
 
     def test_agent_display_intent_fields_are_passed_to_expression_and_clamped(self):
         display = FakeDisplay()

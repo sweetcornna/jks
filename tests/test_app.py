@@ -55,6 +55,8 @@ class FakeButton:
 
     def configure(self, **kwargs):
         self.options.update(kwargs)
+        if "text" in kwargs:
+            self.text = kwargs["text"]
 
 
 class FakeLabel:
@@ -76,12 +78,25 @@ class ImmediateThread:
 
 
 class FakeOrchestrator:
-    def __init__(self, result=None, exc=None):
+    def __init__(self, result=None, exc=None, start_exc=None):
         self.result = result
         self.exc = exc
+        self.start_exc = start_exc
         self.turns = 0
+        self.starts = 0
 
     def run_voice_turn(self):
+        self.turns += 1
+        if self.exc:
+            raise self.exc
+        return self.result
+
+    def start_recording(self):
+        self.starts += 1
+        if self.start_exc:
+            raise self.start_exc
+
+    def finish_voice_turn(self):
         self.turns += 1
         if self.exc:
             raise self.exc
@@ -167,12 +182,38 @@ class AppTests(unittest.TestCase):
         ):
             ui = app.JksApp(root, orchestrator=orchestrator)
             ui.start_turn()
+            ui.start_turn()
 
+        self.assertEqual(orchestrator.starts, 1)
         self.assertEqual(orchestrator.turns, 1)
         self.assertEqual(ui.status.get(), "Ready")
         self.assertIn("You: hello", ui.transcript.get())
         self.assertIn("Agent: reply", ui.transcript.get())
         self.assertEqual(ui.button.options["state"], "normal")
+        self.assertEqual(ui.button.text, "Speak")
+
+    def test_ui_first_click_starts_recording_and_waits_for_stop_click(self):
+        from jks import app
+        from jks.orchestrator import TurnResult
+
+        root = FakeRoot()
+        orchestrator = FakeOrchestrator(
+            result=TurnResult(user_text="hello", agent_text="reply", emotion="happy")
+        )
+
+        with patch.object(app.tk, "StringVar", FakeStringVar), patch.object(
+            app.ttk, "Button", FakeButton
+        ), patch.object(app.ttk, "Label", FakeLabel), patch.object(
+            app.threading, "Thread", ImmediateThread
+        ):
+            ui = app.JksApp(root, orchestrator=orchestrator)
+            ui.start_turn()
+
+        self.assertEqual(orchestrator.starts, 1)
+        self.assertEqual(orchestrator.turns, 0)
+        self.assertEqual(ui.status.get(), "Listening")
+        self.assertEqual(ui.button.options["state"], "normal")
+        self.assertEqual(ui.button.text, "Stop")
 
     def test_ui_error_turn_restores_button(self):
         from jks import app
@@ -187,9 +228,29 @@ class AppTests(unittest.TestCase):
         ):
             ui = app.JksApp(root, orchestrator=orchestrator)
             ui.start_turn()
+            ui.start_turn()
 
         self.assertIn("agent missing", ui.status.get())
         self.assertEqual(ui.button.options["state"], "normal")
+        self.assertEqual(ui.button.text, "Speak")
+
+    def test_ui_start_recording_error_restores_button(self):
+        from jks import app
+
+        root = FakeRoot()
+        orchestrator = FakeOrchestrator(start_exc=RuntimeError("microphone unavailable"))
+
+        with patch.object(app.tk, "StringVar", FakeStringVar), patch.object(
+            app.ttk, "Button", FakeButton
+        ), patch.object(app.ttk, "Label", FakeLabel), patch.object(
+            app.threading, "Thread", ImmediateThread
+        ):
+            ui = app.JksApp(root, orchestrator=orchestrator)
+            ui.start_turn()
+
+        self.assertIn("microphone unavailable", ui.status.get())
+        self.assertEqual(ui.button.options["state"], "normal")
+        self.assertEqual(ui.button.text, "Speak")
 
     def test_ui_error_turn_preserves_exception_for_delayed_after_callback(self):
         from jks import app
@@ -203,6 +264,7 @@ class AppTests(unittest.TestCase):
             app.threading, "Thread", ImmediateThread
         ):
             ui = app.JksApp(root, orchestrator=orchestrator)
+            ui.start_turn()
             ui.start_turn()
 
         root.after_calls[0][1]()
