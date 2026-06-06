@@ -15,6 +15,17 @@ The token must match Hermes `API_SERVER_KEY`.
 If the Hermes profile exposes a different model name, set `JKS_AGENT_MODEL` to
 that value.
 
+If the VPS only exposes the Hermes CLI over SSH, set:
+
+```dotenv
+JKS_AGENT_HOST="replace-with-agent-host"
+JKS_AGENT_USER="replace-with-agent-user"
+JKS_AGENT_AUTH_METHOD="ssh-password"
+JKS_AGENT_SSH_PASSWORD="replace-with-local-ssh-password"
+JKS_AGENT_COMMAND="/usr/local/lib/hermes-agent/venv/bin/hermes"
+JKS_AGENT_WORKDIR="/usr/local/lib/hermes-agent"
+```
+
 For Fish Audio speech, set:
 
 ```dotenv

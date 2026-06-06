@@ -16,6 +16,9 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(getattr(config, "agent_host", None), "")
         self.assertEqual(getattr(config, "agent_user", None), "")
         self.assertEqual(getattr(config, "agent_auth_method", None), "")
+        self.assertEqual(config.agent_ssh_password, "")
+        self.assertEqual(config.agent_command, "/usr/local/lib/hermes-agent/venv/bin/hermes")
+        self.assertEqual(config.agent_workdir, "/usr/local/lib/hermes-agent")
         self.assertEqual(config.agent_endpoint, "")
         self.assertEqual(config.agent_token, "")
         self.assertEqual(config.agent_model, "hermes-agent")
@@ -35,7 +38,10 @@ class ConfigTests(unittest.TestCase):
         env = {
             "JKS_AGENT_HOST": "gran.example.com",
             "JKS_AGENT_USER": "jks",
-            "JKS_AGENT_AUTH_METHOD": "token",
+            "JKS_AGENT_AUTH_METHOD": "ssh-password",
+            "JKS_AGENT_SSH_PASSWORD": "ssh-secret",
+            "JKS_AGENT_COMMAND": "/opt/hermes/bin/hermes",
+            "JKS_AGENT_WORKDIR": "/opt/hermes",
             "JKS_AGENT_ENDPOINT": "http://127.0.0.1:8787/chat",
             "JKS_AGENT_TOKEN": "secret-token",
             "JKS_AGENT_MODEL": "gran-agent",
@@ -56,7 +62,10 @@ class ConfigTests(unittest.TestCase):
 
         self.assertEqual(getattr(config, "agent_host", None), "gran.example.com")
         self.assertEqual(getattr(config, "agent_user", None), "jks")
-        self.assertEqual(getattr(config, "agent_auth_method", None), "token")
+        self.assertEqual(getattr(config, "agent_auth_method", None), "ssh-password")
+        self.assertEqual(config.agent_ssh_password, "ssh-secret")
+        self.assertEqual(config.agent_command, "/opt/hermes/bin/hermes")
+        self.assertEqual(config.agent_workdir, "/opt/hermes")
         self.assertEqual(config.agent_endpoint, env["JKS_AGENT_ENDPOINT"])
         self.assertEqual(config.agent_token, "secret-token")
         self.assertEqual(config.agent_model, "gran-agent")

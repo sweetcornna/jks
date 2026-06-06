@@ -87,7 +87,19 @@ def analyze_config(config: AppConfig) -> dict[str, object]:
     )
     wants_http_speech = wants_http_stt or wants_http_tts
 
-    agent_token_placeholder = field_has_placeholder(config.agent_token, "JKS_AGENT_TOKEN")
+    raw_agent_endpoint = config.agent_endpoint
+    raw_agent_host = config.agent_host
+    wants_ssh_agent = bool(raw_agent_host) and not _is_placeholder(raw_agent_host)
+    wants_http_agent = bool(raw_agent_endpoint) and not _is_placeholder(raw_agent_endpoint)
+
+    agent_token_placeholder = (
+        field_has_placeholder(config.agent_token, "JKS_AGENT_TOKEN") if wants_http_agent else False
+    )
+    agent_ssh_password_placeholder = (
+        field_has_placeholder(config.agent_ssh_password, "JKS_AGENT_SSH_PASSWORD")
+        if wants_ssh_agent
+        else False
+    )
     stt_token_placeholder = (
         field_has_placeholder(config.stt_token, "JKS_STT_TOKEN") if wants_http_stt else False
     )
@@ -110,12 +122,18 @@ def analyze_config(config: AppConfig) -> dict[str, object]:
         else False
     )
 
-    agent_endpoint_ready = endpoint_is_ready(config.agent_endpoint, "JKS_AGENT_ENDPOINT")
+    agent_endpoint_ready = (
+        endpoint_is_ready(config.agent_endpoint, "JKS_AGENT_ENDPOINT")
+        if wants_http_agent
+        else False
+    )
     if agent_endpoint_ready:
         agent_mode = "http"
+    elif wants_ssh_agent:
+        agent_mode = "ssh"
     else:
         agent_mode = "missing"
-        if not config.agent_endpoint:
+        if (not config.agent_endpoint or _is_placeholder(config.agent_endpoint)) and not config.agent_host:
             add_missing("JKS_AGENT_ENDPOINT")
 
     stt_endpoint_ready = (
@@ -166,10 +184,11 @@ def analyze_config(config: AppConfig) -> dict[str, object]:
         add_missing("JKS_OLED_PORT")
 
     ready_for_real = (
-        agent_mode == "http"
+        agent_mode in {"http", "ssh"}
         and speech_mode in {"http", "fish"}
         and oled_mode == "serial"
         and not agent_token_placeholder
+        and not agent_ssh_password_placeholder
         and not stt_token_placeholder
         and not tts_token_placeholder
         and not fish_api_key_placeholder
@@ -187,6 +206,9 @@ def analyze_config(config: AppConfig) -> dict[str, object]:
             "user": config.agent_user,
             "auth_method": config.agent_auth_method,
             "token": redact_secret(config.agent_token),
+            "ssh_password": redact_secret(config.agent_ssh_password),
+            "command": config.agent_command,
+            "workdir": config.agent_workdir,
             "model": config.agent_model,
         },
         "speech": {

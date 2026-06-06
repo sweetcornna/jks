@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import os
+import shlex
+import subprocess
 from typing import Any, Iterable
 from urllib.parse import urlsplit
 
@@ -285,9 +288,128 @@ class HttpAgentClient:
         return self.send_message("JKS contract probe", "contract-probe")
 
 
+class SshHermesAgentClient:
+    def __init__(
+        self,
+        host: str,
+        user: str = "root",
+        password: str = "",
+        command: str = "/usr/local/lib/hermes-agent/venv/bin/hermes",
+        workdir: str = "/usr/local/lib/hermes-agent",
+        timeout: float = 120.0,
+        model: str = "",
+    ):
+        self.host = host
+        self.user = user or ""
+        self.password = password
+        self.command = command or "/usr/local/lib/hermes-agent/venv/bin/hermes"
+        self.workdir = workdir or "/usr/local/lib/hermes-agent"
+        self.timeout = timeout
+        self.model = model
+
+    def send_message(self, text: str, conversation_id: str) -> AgentReply:
+        if not self.host:
+            raise RuntimeError("JKS_AGENT_HOST is not configured")
+
+        target = f"{self.user}@{self.host}" if self.user else self.host
+        session_name = _ssh_session_name(conversation_id)
+        prompt = _voice_json_prompt(text)
+        hermes_args = [self.command, "--continue", session_name]
+        if self.model and self.model != "hermes-agent":
+            hermes_args.extend(["--model", self.model])
+        hermes_args.extend(["-z", prompt])
+        remote_command = f"cd {shlex.quote(self.workdir)} && {shlex.join(hermes_args)}"
+        ssh_command = [
+            "ssh",
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+            "-o",
+            "ConnectTimeout=10",
+            target,
+            remote_command,
+        ]
+        command = ssh_command
+        env = os.environ.copy()
+        if self.password:
+            command = ["sshpass", "-e", *ssh_command]
+            env["SSHPASS"] = self.password
+        else:
+            env.pop("SSHPASS", None)
+
+        try:
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=self.timeout,
+                env=env,
+            )
+        except Exception as exc:
+            raise AgentProviderError("hermes ssh request failed") from exc
+
+        reply = parse_agent_reply(completed.stdout.strip())
+        if not reply.text.strip():
+            raise AgentProviderError("agent response did not contain text")
+        return reply
+
+    def probe_contract(self) -> AgentReply:
+        return self.send_message("JKS contract probe", "contract-probe")
+
+
 def _uses_openai_chat_completions(endpoint: str) -> bool:
     try:
         path = urlsplit(endpoint).path.rstrip("/")
     except ValueError:
         return False
     return path.endswith("/v1/chat/completions")
+
+
+def build_agent_client(config, timeout: float = 30.0):
+    endpoint = getattr(config, "agent_endpoint", "")
+    if endpoint and not _is_placeholder(endpoint):
+        return HttpAgentClient(
+            endpoint,
+            getattr(config, "agent_token", ""),
+            timeout=timeout,
+            model=getattr(config, "agent_model", "hermes-agent"),
+        )
+    host = getattr(config, "agent_host", "")
+    if host and not _is_placeholder(host):
+        return SshHermesAgentClient(
+            host=host,
+            user=getattr(config, "agent_user", "") or "root",
+            password=getattr(config, "agent_ssh_password", ""),
+            command=getattr(config, "agent_command", ""),
+            workdir=getattr(config, "agent_workdir", ""),
+            timeout=timeout,
+            model=getattr(config, "agent_model", ""),
+        )
+    return HttpAgentClient(
+        endpoint,
+        getattr(config, "agent_token", ""),
+        timeout=timeout,
+        model=getattr(config, "agent_model", "hermes-agent"),
+    )
+
+
+def _is_placeholder(value: str) -> bool:
+    return value.strip().lower().startswith("replace-with-")
+
+
+def _ssh_session_name(conversation_id: str) -> str:
+    safe = []
+    for char in conversation_id:
+        safe.append(char if char.isalnum() or char in {"-", "_"} else "-")
+    value = "".join(safe).strip("-_")[:80]
+    return f"jks-{value or 'session'}"
+
+
+def _voice_json_prompt(text: str) -> str:
+    return (
+        "JKS voice call turn. Return only compact JSON with keys text, emotion, "
+        "display_text, duration_ms, intensity. emotion must be one of neutral, "
+        "happy, thinking, speaking, listening, surprised, sleepy, sad, angry, error. "
+        "display_text must be a short ASCII OLED label. Do not include markdown. "
+        f"User said: {text}"
+    )

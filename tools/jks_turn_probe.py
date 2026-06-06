@@ -9,7 +9,7 @@ import tempfile
 from typing import Optional, Sequence, TextIO
 from uuid import uuid4
 
-from jks.agent import HttpAgentClient
+from jks.agent import build_agent_client
 from jks.audio import AudioPlayer
 from jks.config import load_config
 from jks.preflight import analyze_config
@@ -85,7 +85,7 @@ def run_turn_probe(argv: Sequence[str]) -> dict[str, object]:
     errors = []
     output_dir = Path(tempfile.gettempdir()) / "jks-turn-probe"
     speech = build_speech_client(config, output_dir)
-    agent = HttpAgentClient(config.agent_endpoint, config.agent_token, model=config.agent_model)
+    agent = build_agent_client(config)
 
     try:
         user_text = speech.transcribe(audio_path)
@@ -103,7 +103,10 @@ def run_turn_probe(argv: Sequence[str]) -> dict[str, object]:
     try:
         reply = agent.send_message(user_text, f"turn-probe-{uuid4().hex}")
         server_events.append("chat")
-        checks["agent"] = summarize_agent_reply(reply)
+        checks["agent"] = summarize_agent_reply(
+            reply,
+            mode=str(preflight.get("agent", {}).get("mode", "http")),
+        )
         if verbose:
             checks["agent"]["text"] = reply.text
     except Exception as exc:

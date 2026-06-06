@@ -6,6 +6,9 @@ REQUIRED_KEYS = (
     "JKS_AGENT_HOST",
     "JKS_AGENT_USER",
     "JKS_AGENT_AUTH_METHOD",
+    "JKS_AGENT_SSH_PASSWORD",
+    "JKS_AGENT_COMMAND",
+    "JKS_AGENT_WORKDIR",
     "JKS_AGENT_ENDPOINT",
     "JKS_AGENT_TOKEN",
     "JKS_AGENT_MODEL",
@@ -32,7 +35,7 @@ class EnvExampleTests(unittest.TestCase):
         for key in REQUIRED_KEYS:
             self.assertIn(key + "=", text)
 
-        for forbidden in ("Bearer ", "root", "Qq", "secret-token", "password"):
+        for forbidden in ("Bearer ", "root", "Qq", "secret-token", '="password"'):
             self.assertNotIn(forbidden, text)
 
         self.assertIn("replace-with-", text)

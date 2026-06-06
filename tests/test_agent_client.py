@@ -1,8 +1,16 @@
 import json
+import subprocess
 import unittest
 from unittest.mock import patch
 
-from jks.agent import AgentProviderError, AgentReply, HttpAgentClient, parse_agent_reply
+from jks.agent import (
+    AgentProviderError,
+    AgentReply,
+    HttpAgentClient,
+    SshHermesAgentClient,
+    build_agent_client,
+    parse_agent_reply,
+)
 
 
 class AgentClientTests(unittest.TestCase):
@@ -470,6 +478,115 @@ class AgentClientTests(unittest.TestCase):
 
             with self.assertRaisesRegex(AgentProviderError, "agent request failed"):
                 client.send_message("hello", "conv-1")
+
+    def test_ssh_hermes_client_invokes_sshpass_without_password_in_argv_and_parses_json(self):
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "text": "hi from hermes",
+                    "emotion": "happy",
+                    "display_text": "HI",
+                    "duration_ms": 900,
+                    "intensity": "normal",
+                }
+            ),
+            stderr="",
+        )
+
+        with patch("jks.agent.subprocess.run", return_value=completed) as run:
+            client = SshHermesAgentClient(
+                host="gran.example.com",
+                user="jks",
+                password="ssh-secret",
+                command="/usr/local/bin/hermes",
+                workdir="/srv/hermes",
+                timeout=12.5,
+            )
+            reply = client.send_message("你好", "conv-1")
+
+        command = run.call_args.args[0]
+        self.assertEqual(command[:3], ["sshpass", "-e", "ssh"])
+        self.assertNotIn("ssh-secret", " ".join(command))
+        self.assertEqual(run.call_args.kwargs["env"]["SSHPASS"], "ssh-secret")
+        self.assertEqual(run.call_args.kwargs["timeout"], 12.5)
+        self.assertIn("jks@gran.example.com", command)
+        remote_command = command[-1]
+        self.assertIn("cd /srv/hermes", remote_command)
+        self.assertIn("/usr/local/bin/hermes", remote_command)
+        self.assertIn("--continue jks-conv-1", remote_command)
+        self.assertIn("-z", remote_command)
+        self.assertIn("Return only compact JSON", remote_command)
+        self.assertEqual(
+            reply,
+            AgentReply(
+                text="hi from hermes",
+                emotion="happy",
+                display_text="HI",
+                duration_ms=900,
+                intensity="normal",
+            ),
+        )
+
+    def test_ssh_hermes_client_uses_plain_ssh_when_password_is_absent(self):
+        completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="plain reply", stderr="")
+
+        with patch("jks.agent.subprocess.run", return_value=completed) as run:
+            client = SshHermesAgentClient(host="gran.local", user="")
+            reply = client.send_message("hello", "conv/2")
+
+        command = run.call_args.args[0]
+        self.assertEqual(command[0], "ssh")
+        self.assertNotIn("sshpass", command)
+        self.assertNotIn("SSHPASS", run.call_args.kwargs["env"])
+        self.assertIn("gran.local", command)
+        self.assertIn("--continue jks-conv-2", command[-1])
+        self.assertEqual(reply, AgentReply(text="plain reply"))
+
+    def test_ssh_hermes_client_wraps_subprocess_failures(self):
+        with patch(
+            "jks.agent.subprocess.run",
+            side_effect=subprocess.CalledProcessError(1, ["ssh"], stderr="denied"),
+        ):
+            client = SshHermesAgentClient(host="gran.local", password="ssh-secret")
+
+            with self.assertRaisesRegex(AgentProviderError, "hermes ssh request failed"):
+                client.send_message("hello", "conv-1")
+
+    def test_build_agent_client_prefers_http_endpoint_over_ssh_host(self):
+        class Config:
+            agent_endpoint = "http://agent.local/chat"
+            agent_token = "token"
+            agent_model = "gran-agent"
+            agent_host = "gran.example.com"
+            agent_user = "jks"
+            agent_ssh_password = "ssh-secret"
+            agent_command = "/usr/local/bin/hermes"
+            agent_workdir = "/srv/hermes"
+
+        client = build_agent_client(Config(), timeout=7.0)
+
+        self.assertIsInstance(client, HttpAgentClient)
+        self.assertEqual(client.endpoint, "http://agent.local/chat")
+        self.assertEqual(client.timeout, 7.0)
+
+    def test_build_agent_client_uses_ssh_when_endpoint_is_missing_or_placeholder(self):
+        class Config:
+            agent_endpoint = "replace-with-agent-endpoint"
+            agent_token = "replace-with-agent-token"
+            agent_model = "hermes-agent"
+            agent_host = "gran.example.com"
+            agent_user = "jks"
+            agent_ssh_password = "ssh-secret"
+            agent_command = "/usr/local/bin/hermes"
+            agent_workdir = "/srv/hermes"
+
+        client = build_agent_client(Config(), timeout=7.0)
+
+        self.assertIsInstance(client, SshHermesAgentClient)
+        self.assertEqual(client.timeout, 7.0)
+        self.assertEqual(client.host, "gran.example.com")
 
     def test_http_client_rejects_empty_response_text(self):
         class FakeResponse:

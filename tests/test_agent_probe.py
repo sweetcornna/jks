@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from contextlib import contextmanager
@@ -153,6 +154,41 @@ class AgentProbeTests(unittest.TestCase):
         self.assertEqual([event["kind"] for event in server.events], ["chat"])
         self.assertEqual(server.events[0]["format"], "legacy")
         self.assertEqual(server.events[0]["conversation_id"], "contract-probe")
+
+    def test_agent_probe_supports_ssh_hermes_without_requiring_http_endpoint(self):
+        stdout = io.StringIO()
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=json.dumps({"text": "ssh ok", "emotion": "happy", "display_text": "OK"}),
+            stderr="",
+        )
+        env = {
+            "JKS_AGENT_ENDPOINT": "replace-with-agent-endpoint",
+            "JKS_AGENT_TOKEN": "replace-with-agent-token",
+            "JKS_AGENT_HOST": "gran.example.com",
+            "JKS_AGENT_USER": "jks",
+            "JKS_AGENT_AUTH_METHOD": "ssh-password",
+            "JKS_AGENT_SSH_PASSWORD": "ssh-secret",
+        }
+
+        with clean_cwd(), patch.dict(os.environ, env, clear=True):
+            with patch("jks.agent.subprocess.run", return_value=completed) as run:
+                exit_code = main([], stdout=stdout)
+
+        text = stdout.getvalue()
+        payload = json.loads(text)
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["checks"]["agent"]["mode"], "ssh")
+        self.assertEqual(payload["checks"]["agent"]["emotion"], "happy")
+        self.assertEqual(payload["checks"]["agent"]["display_text_length"], 2)
+        self.assertNotIn("ssh-secret", text)
+        self.assertNotIn("replace-with-agent-token", text)
+        command = run.call_args.args[0]
+        self.assertEqual(command[:3], ["sshpass", "-e", "ssh"])
+        self.assertNotIn("ssh-secret", " ".join(command))
+        self.assertEqual(run.call_args.kwargs["timeout"], 60.0)
 
 
 if __name__ == "__main__":

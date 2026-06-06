@@ -11,6 +11,9 @@ class AppConfig:
     agent_host: str
     agent_user: str
     agent_auth_method: str
+    agent_ssh_password: str
+    agent_command: str
+    agent_workdir: str
     agent_endpoint: str
     agent_token: str
     agent_model: str
@@ -77,6 +80,12 @@ def load_config(env_file: Optional[Union[os.PathLike[str], str]] = ".env") -> Ap
         agent_host=settings.get("JKS_AGENT_HOST", ""),
         agent_user=settings.get("JKS_AGENT_USER", ""),
         agent_auth_method=settings.get("JKS_AGENT_AUTH_METHOD", ""),
+        agent_ssh_password=settings.get("JKS_AGENT_SSH_PASSWORD", settings.get("SSHPASS", "")),
+        agent_command=settings.get(
+            "JKS_AGENT_COMMAND",
+            "/usr/local/lib/hermes-agent/venv/bin/hermes",
+        ),
+        agent_workdir=settings.get("JKS_AGENT_WORKDIR", "/usr/local/lib/hermes-agent"),
         agent_endpoint=settings.get("JKS_AGENT_ENDPOINT", ""),
         agent_token=settings.get("JKS_AGENT_TOKEN", ""),
         agent_model=settings.get("JKS_AGENT_MODEL", "hermes-agent"),

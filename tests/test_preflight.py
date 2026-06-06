@@ -10,6 +10,9 @@ def config(**overrides):
         "agent_host": "",
         "agent_user": "",
         "agent_auth_method": "",
+        "agent_ssh_password": "",
+        "agent_command": "/usr/local/lib/hermes-agent/venv/bin/hermes",
+        "agent_workdir": "/usr/local/lib/hermes-agent",
         "agent_endpoint": "",
         "agent_token": "",
         "agent_model": "hermes-agent",
@@ -64,6 +67,30 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(summary["speech"]["stt_token"], "<redacted:10>")
         self.assertEqual(summary["speech"]["tts_token"], "<redacted:10>")
         self.assertEqual(summary["speech"]["voice"], "warm")
+
+    def test_ssh_agent_and_fish_speech_are_ready_without_http_endpoint(self):
+        summary = analyze_config(
+            config(
+                agent_host="gran.example.com",
+                agent_user="jks",
+                agent_auth_method="ssh-password",
+                agent_ssh_password="ssh-secret",
+                agent_endpoint="replace-with-agent-endpoint",
+                agent_token="replace-with-agent-token",
+                stt_provider="fish",
+                tts_provider="fish",
+                fish_api_key="fish-secret",
+            )
+        )
+
+        self.assertTrue(summary["ok"])
+        self.assertTrue(summary["ready_for_real"])
+        self.assertEqual(summary["agent"]["mode"], "ssh")
+        self.assertEqual(summary["agent"]["host"], "gran.example.com")
+        self.assertEqual(summary["agent"]["user"], "jks")
+        self.assertEqual(summary["agent"]["ssh_password"], "<redacted:10>")
+        self.assertNotIn("JKS_AGENT_ENDPOINT", summary["missing"])
+        self.assertNotIn("JKS_AGENT_TOKEN", summary["missing"])
 
     def test_fish_speech_provider_is_ready_with_api_key_and_default_endpoints(self):
         summary = analyze_config(

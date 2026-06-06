@@ -8,7 +8,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Callable, Optional, Sequence, TextIO
 
-from .agent import HttpAgentClient
+from .agent import build_agent_client
 from .audio import AudioPlayer, AudioRecorder
 from .config import AppConfig, load_config
 from .display import DisplayController, NullDisplayController, open_serial_output
@@ -45,7 +45,7 @@ def build_orchestrator(
     return ConversationOrchestrator(
         recorder=recorder or AudioRecorder(),
         speech=speech,
-        agent=HttpAgentClient(config.agent_endpoint, config.agent_token, model=config.agent_model),
+        agent=build_agent_client(config),
         display=display,
         player=player or AudioPlayer(),
         voice=config.tts_voice,

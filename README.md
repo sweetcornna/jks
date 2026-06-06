@@ -76,6 +76,25 @@ JSON object as message content:
 JKS treats `text` as the spoken reply and clamps the display fields through the
 local expression safety layer.
 
+### Hermes SSH / CLI
+
+If the VPS has Hermes running but no OpenAI-compatible HTTP API port, JKS can
+call the remote Hermes CLI over SSH:
+
+```dotenv
+JKS_AGENT_HOST="replace-with-agent-host"
+JKS_AGENT_USER="replace-with-agent-user"
+JKS_AGENT_AUTH_METHOD="ssh-password"
+JKS_AGENT_SSH_PASSWORD="replace-with-ssh-password"
+JKS_AGENT_COMMAND="/usr/local/lib/hermes-agent/venv/bin/hermes"
+JKS_AGENT_WORKDIR="/usr/local/lib/hermes-agent"
+```
+
+SSH key auth also works by omitting `JKS_AGENT_SSH_PASSWORD`. Passwords must
+stay in local `.env` or shell environment only. JKS invokes
+`hermes --continue <jks-session> -z <prompt>` and asks Hermes to return compact
+JSON with `text`, `emotion`, `display_text`, `duration_ms`, and `intensity`.
+
 ### Fish Audio Speech
 
 For Fish Audio STT/TTS, set both speech providers to `fish` and keep the API

@@ -5,10 +5,10 @@ from __future__ import annotations
 from jks.agent import AgentReply
 
 
-def summarize_agent_reply(reply: AgentReply) -> dict[str, object]:
+def summarize_agent_reply(reply: AgentReply, mode: str = "http") -> dict[str, object]:
     display_text_length = 0 if reply.display_text is None else len(str(reply.display_text))
     return {
-        "mode": "http",
+        "mode": mode,
         "text_length": len(reply.text),
         "emotion": reply.emotion,
         "display_present": bool(

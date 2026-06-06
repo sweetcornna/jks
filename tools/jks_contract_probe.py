@@ -9,7 +9,7 @@ import tempfile
 from typing import Optional, Sequence, TextIO
 import wave
 
-from jks.agent import HttpAgentClient
+from jks.agent import build_agent_client
 from jks.config import load_config
 from jks.preflight import analyze_config
 from jks.speech import build_speech_client
@@ -40,13 +40,11 @@ def run_probe() -> dict[str, object]:
     errors: list[dict[str, str]] = []
 
     try:
-        agent_reply = HttpAgentClient(
-            config.agent_endpoint,
-            config.agent_token,
-            timeout=10.0,
-            model=config.agent_model,
-        ).probe_contract()
-        checks["agent"] = summarize_agent_reply(agent_reply)
+        agent_reply = build_agent_client(config, timeout=60.0).probe_contract()
+        checks["agent"] = summarize_agent_reply(
+            agent_reply,
+            mode=str(preflight.get("agent", {}).get("mode", "http")),
+        )
     except Exception as exc:
         errors.append({"error": "agent", "message": str(exc)})
 
@@ -59,7 +57,7 @@ def run_probe() -> dict[str, object]:
             stt_text = speech.transcribe(input_audio)
             tts_audio = speech.synthesize("JKS contract probe", config.tts_voice)
             checks["speech"] = {
-                "mode": "http",
+                "mode": str(preflight.get("speech", {}).get("mode", "http")),
                 "stt_text_length": len(stt_text),
                 "tts_bytes": tts_audio.stat().st_size,
             }

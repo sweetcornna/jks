@@ -7,7 +7,7 @@ import sys
 from typing import Optional, Sequence, TextIO
 from urllib.parse import urlsplit
 
-from jks.agent import HttpAgentClient
+from jks.agent import build_agent_client
 from jks.config import load_config
 from jks.preflight import redact_secret, redact_url
 from tools.jks_probe_summary import summarize_agent_reply
@@ -39,29 +39,31 @@ def run_probe() -> dict[str, object]:
     summary = _empty_summary()
     summary["agent"] = {
         "endpoint": redact_url(config.agent_endpoint),
+        "host": config.agent_host,
+        "user": config.agent_user,
         "token": redact_secret(config.agent_token),
+        "ssh_password": redact_secret(config.agent_ssh_password),
         "model": config.agent_model,
     }
 
-    if not config.agent_endpoint or _is_placeholder(config.agent_endpoint):
+    can_use_http = config.agent_endpoint and not _is_placeholder(config.agent_endpoint)
+    can_use_ssh = config.agent_host and not _is_placeholder(config.agent_host)
+    if not can_use_http and not can_use_ssh:
         summary["errors"] = [{"error": "agent", "message": "JKS_AGENT_ENDPOINT is required"}]
         return summary
-    if not _is_http_url(config.agent_endpoint):
+    if can_use_http and not _is_http_url(config.agent_endpoint):
         summary["errors"] = [{"error": "agent", "message": "JKS_AGENT_ENDPOINT must be an http(s) URL"}]
         return summary
 
     try:
-        reply = HttpAgentClient(
-            config.agent_endpoint,
-            config.agent_token,
-            timeout=10.0,
-            model=config.agent_model,
-        ).probe_contract()
+        reply = build_agent_client(config, timeout=60.0).probe_contract()
     except Exception as exc:
         summary["errors"] = [{"error": "agent", "message": str(exc)}]
         return summary
 
-    summary["checks"] = {"agent": summarize_agent_reply(reply)}
+    summary["checks"] = {
+        "agent": summarize_agent_reply(reply, mode="http" if can_use_http else "ssh")
+    }
     summary["ok"] = True
     return summary
 

@@ -137,6 +137,9 @@ def sample_config(**overrides):
         "agent_host": "",
         "agent_user": "",
         "agent_auth_method": "",
+        "agent_ssh_password": "",
+        "agent_command": "/usr/local/lib/hermes-agent/venv/bin/hermes",
+        "agent_workdir": "/usr/local/lib/hermes-agent",
         "agent_endpoint": "",
         "agent_token": "",
         "agent_model": "hermes-agent",
@@ -235,6 +238,26 @@ class AppTests(unittest.TestCase):
             )
 
         self.assertIsInstance(orchestrator.speech, FishAudioSpeechClient)
+
+    def test_orchestrator_builder_uses_ssh_hermes_agent_when_host_is_configured(self):
+        from jks import app
+        from jks.agent import SshHermesAgentClient
+
+        with tempfile.TemporaryDirectory() as tmp:
+            orchestrator = app.build_orchestrator(
+                sample_config(
+                    agent_host="gran.example.com",
+                    agent_user="jks",
+                    agent_auth_method="ssh-password",
+                    agent_ssh_password="ssh-secret",
+                ),
+                open_serial=lambda path, baud: io.BytesIO(),
+                output_dir=Path(tmp),
+            )
+
+        self.assertIsInstance(orchestrator.agent, SshHermesAgentClient)
+        self.assertEqual(orchestrator.agent.host, "gran.example.com")
+        self.assertEqual(orchestrator.agent.user, "jks")
 
     def test_ui_success_turn_updates_transcript_and_restores_button(self):
         from jks import app
