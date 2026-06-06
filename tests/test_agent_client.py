@@ -2,7 +2,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from jks.agent import AgentReply, HttpAgentClient, parse_agent_reply
+from jks.agent import AgentProviderError, AgentReply, HttpAgentClient, parse_agent_reply
 
 
 class AgentClientTests(unittest.TestCase):
@@ -317,6 +317,59 @@ class AgentClientTests(unittest.TestCase):
             reply = client.send_message("hello", "conv-1")
 
         self.assertEqual(reply, AgentReply(text="plain response"))
+
+    def test_http_client_wraps_request_failures(self):
+        with patch("jks.agent.requests.post", side_effect=OSError("offline")):
+            client = HttpAgentClient("http://127.0.0.1:8787/chat", timeout=1.5)
+
+            with self.assertRaisesRegex(AgentProviderError, "agent request failed"):
+                client.send_message("hello", "conv-1")
+
+    def test_http_client_wraps_status_failures(self):
+        class FakeResponse:
+            def raise_for_status(self):
+                raise RuntimeError("500")
+
+            def json(self):
+                return {"text": "ignored"}
+
+        with patch("jks.agent.requests.post", return_value=FakeResponse()):
+            client = HttpAgentClient("http://127.0.0.1:8787/chat")
+
+            with self.assertRaisesRegex(AgentProviderError, "agent request failed"):
+                client.send_message("hello", "conv-1")
+
+    def test_http_client_rejects_empty_response_text(self):
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {"emotion": "thinking"}
+
+        with patch("jks.agent.requests.post", return_value=FakeResponse()):
+            client = HttpAgentClient("http://127.0.0.1:8787/chat")
+
+            with self.assertRaisesRegex(AgentProviderError, "agent response did not contain text"):
+                client.send_message("hello", "conv-1")
+
+    def test_probe_contract_sends_probe_message_and_returns_reply(self):
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {"text": "probe ok", "emotion": "happy"}
+
+        with patch("jks.agent.requests.post", return_value=FakeResponse()) as post:
+            client = HttpAgentClient("http://127.0.0.1:8787/chat")
+            reply = client.probe_contract()
+
+        self.assertEqual(reply, AgentReply(text="probe ok", emotion="happy"))
+        self.assertEqual(
+            post.call_args.kwargs["json"],
+            {"message": "JKS contract probe", "conversation_id": "contract-probe"},
+        )
 
     def test_empty_endpoint_fails_before_posting(self):
         with patch("jks.agent.requests.post") as post:

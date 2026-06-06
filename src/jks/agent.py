@@ -15,6 +15,10 @@ class AgentReply:
     intensity: Any = None
 
 
+class AgentProviderError(RuntimeError):
+    """Raised when the remote agent transport or response contract fails."""
+
+
 def parse_agent_reply(payload: Any) -> AgentReply:
     if isinstance(payload, str):
         return AgentReply(text=payload)
@@ -178,16 +182,25 @@ class HttpAgentClient:
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
 
-        response = requests.post(
-            self.endpoint,
-            json={"message": text, "conversation_id": conversation_id},
-            headers=headers,
-            timeout=self.timeout,
-        )
-        response.raise_for_status()
+        try:
+            response = requests.post(
+                self.endpoint,
+                json={"message": text, "conversation_id": conversation_id},
+                headers=headers,
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+        except Exception as exc:
+            raise AgentProviderError("agent request failed") from exc
 
         try:
             payload = response.json()
         except ValueError:
             payload = response.text
-        return parse_agent_reply(payload)
+        reply = parse_agent_reply(payload)
+        if not reply.text.strip():
+            raise AgentProviderError("agent response did not contain text")
+        return reply
+
+    def probe_contract(self) -> AgentReply:
+        return self.send_message("JKS contract probe", "contract-probe")
