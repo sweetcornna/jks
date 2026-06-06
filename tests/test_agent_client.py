@@ -302,6 +302,53 @@ class AgentClientTests(unittest.TestCase):
 
         self.assertNotIn("Authorization", post.call_args.kwargs["headers"])
 
+    def test_http_client_uses_openai_chat_payload_for_hermes_api_server_endpoint(self):
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {
+                    "choices": [
+                        {
+                            "message": {
+                                "role": "assistant",
+                                "content": "hermes reply",
+                            }
+                        }
+                    ]
+                }
+
+        with patch("jks.agent.requests.post", return_value=FakeResponse()) as post:
+            client = HttpAgentClient("http://127.0.0.1:8642/v1/chat/completions", "api-key")
+            reply = client.send_message("hello", "conv-1")
+
+        self.assertEqual(reply, AgentReply(text="hermes reply"))
+        self.assertEqual(
+            post.call_args.kwargs["json"],
+            {
+                "model": "hermes-agent",
+                "messages": [{"role": "user", "content": "hello"}],
+                "stream": False,
+            },
+        )
+        self.assertEqual(post.call_args.kwargs["headers"]["Authorization"], "Bearer api-key")
+        self.assertEqual(post.call_args.kwargs["headers"]["X-Hermes-Session-Id"], "conv-1")
+
+    def test_http_client_does_not_send_empty_hermes_session_header(self):
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {"choices": [{"message": {"content": "ok"}}]}
+
+        with patch("jks.agent.requests.post", return_value=FakeResponse()) as post:
+            client = HttpAgentClient("http://127.0.0.1:8642/v1/chat/completions")
+            client.send_message("hello", "")
+
+        self.assertNotIn("X-Hermes-Session-Id", post.call_args.kwargs["headers"])
+
     def test_http_client_uses_text_when_json_parsing_fails(self):
         class FakeResponse:
             text = "plain response"

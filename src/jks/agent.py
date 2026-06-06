@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Iterable
+from urllib.parse import urlsplit
 
 import requests
 
@@ -181,11 +182,21 @@ class HttpAgentClient:
         headers = {"Content-Type": "application/json"}
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
+        if _uses_openai_chat_completions(self.endpoint):
+            body = {
+                "model": "hermes-agent",
+                "messages": [{"role": "user", "content": text}],
+                "stream": False,
+            }
+            if conversation_id:
+                headers["X-Hermes-Session-Id"] = conversation_id
+        else:
+            body = {"message": text, "conversation_id": conversation_id}
 
         try:
             response = requests.post(
                 self.endpoint,
-                json={"message": text, "conversation_id": conversation_id},
+                json=body,
                 headers=headers,
                 timeout=self.timeout,
             )
@@ -204,3 +215,11 @@ class HttpAgentClient:
 
     def probe_contract(self) -> AgentReply:
         return self.send_message("JKS contract probe", "contract-probe")
+
+
+def _uses_openai_chat_completions(endpoint: str) -> bool:
+    try:
+        path = urlsplit(endpoint).path.rstrip("/")
+    except ValueError:
+        return False
+    return path.endswith("/v1/chat/completions")

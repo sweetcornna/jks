@@ -2,6 +2,15 @@
 
 Use this checklist only after `.env` contains real local endpoints or proxies for Hermes / Gran, STT, and TTS.
 
+For Hermes API Server, set:
+
+```dotenv
+JKS_AGENT_ENDPOINT="http://127.0.0.1:8642/v1/chat/completions"
+JKS_AGENT_TOKEN="replace-with-local-api-server-key"
+```
+
+The token must match Hermes `API_SERVER_KEY`.
+
 ## Preflight
 
 ```bash

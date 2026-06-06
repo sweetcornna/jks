@@ -47,6 +47,20 @@ JKS_OLED_BAUD
 
 `JKS_AGENT_TOKEN` is optional when the endpoint does not require bearer auth.
 
+### Hermes API Server
+
+For the local Hermes Agent API server, use its OpenAI-compatible Chat
+Completions endpoint:
+
+```dotenv
+JKS_AGENT_ENDPOINT="http://127.0.0.1:8642/v1/chat/completions"
+JKS_AGENT_TOKEN="replace-with-hermes-api-server-key"
+```
+
+`JKS_AGENT_TOKEN` must match the Hermes `API_SERVER_KEY` value. JKS sends
+`model:"hermes-agent"`, a single user message, `stream:false`, and a
+`X-Hermes-Session-Id` header for conversation continuity.
+
 Run the desktop controller:
 
 ```bash
