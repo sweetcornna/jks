@@ -46,7 +46,7 @@ Audio configs.
 uv run python -m tools.jks_smoke
 uv run python -m tools.jks_agent_probe
 uv run python -m tools.jks_config_check
-uv run python -m tools.jks_mic_probe --duration 1 --min-rms 0.0001
+uv run python -m tools.jks_mic_probe --duration 1 --min-rms 0.0001 --timeout 10
 uv run python -m tools.jks_contract_probe
 uv run python -m tools.jks_turn_probe --audio /path/to/input.wav --display --require-display-ack --display-ack-timeout 6 --play
 uv run python -m tools.jks_app_probe --audio /path/to/input.wav --require-display-ack --display-ack-timeout 6 --play
@@ -70,6 +70,9 @@ Expected:
 `jks_turn_probe` prints text lengths by default, not full transcripts. The
 preflight block in probe output is also summarized by default. Add `--verbose`
 only when local transcript logging is acceptable.
+`jks_mic_probe --timeout` bounds local audio-device hangs so a missing or
+blocked microphone permission reports a structured failure instead of stalling
+the checklist.
 `oled_smoke` reads `JKS_OLED_PORT` and `JKS_OLED_BAUD`; add `--hold-ms 2000`
 when capturing visual evidence.
 

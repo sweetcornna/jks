@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+from queue import Queue
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import time
 from typing import Optional, Sequence, TextIO
 import wave
@@ -15,15 +17,17 @@ from jks.audio import AudioRecorder
 
 DEFAULT_DURATION_SECONDS = 1.0
 DEFAULT_MIN_RMS = 0.0
+DEFAULT_TIMEOUT_SECONDS = 10.0
 
 
 def _empty_summary() -> dict[str, object]:
     return {"ok": False, "checks": {}, "errors": []}
 
 
-def _parse_args(argv: Sequence[str]) -> tuple[float, float, list[dict[str, str]]]:
+def _parse_args(argv: Sequence[str]) -> tuple[float, float, Optional[float], list[dict[str, str]]]:
     duration = DEFAULT_DURATION_SECONDS
     min_rms = DEFAULT_MIN_RMS
+    timeout = None
     errors: list[dict[str, str]] = []
     index = 0
     while index < len(argv):
@@ -56,9 +60,23 @@ def _parse_args(argv: Sequence[str]) -> tuple[float, float, list[dict[str, str]]
                 break
             index += 2
             continue
+        if arg == "--timeout":
+            if index + 1 >= len(argv):
+                errors.append({"error": "args", "message": "--timeout requires seconds"})
+                break
+            try:
+                timeout = float(argv[index + 1])
+            except ValueError:
+                errors.append({"error": "args", "message": "--timeout must be a number"})
+                break
+            if timeout <= 0:
+                errors.append({"error": "args", "message": "--timeout must be positive"})
+                break
+            index += 2
+            continue
         errors.append({"error": "args", "message": f"unsupported argument: {arg}"})
         index += 1
-    return duration, min_rms, errors
+    return duration, min_rms, timeout, errors
 
 
 def _analyze_wav(path: Path) -> dict[str, object]:
@@ -108,11 +126,36 @@ def _pcm_samples(raw: bytes, sample_width: int) -> list[int]:
 
 def run_mic_probe(argv: Sequence[str]) -> dict[str, object]:
     summary = _empty_summary()
-    duration, min_rms, errors = _parse_args(argv)
+    duration, min_rms, timeout, errors = _parse_args(argv)
     if errors:
         summary["errors"] = errors
         return summary
 
+    deadline = timeout if timeout is not None else max(DEFAULT_TIMEOUT_SECONDS, duration + 5.0)
+    results: Queue[dict[str, object]] = Queue(maxsize=1)
+
+    def worker() -> None:
+        results.put(_run_recording_probe(duration, min_rms))
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    thread.join(deadline)
+    if thread.is_alive():
+        summary["errors"] = [
+            {
+                "error": "mic_timeout",
+                "message": f"microphone probe timed out after {deadline:g}s",
+            }
+        ]
+        return summary
+    if results.empty():
+        summary["errors"] = [{"error": "mic", "message": "microphone probe returned no result"}]
+        return summary
+    return results.get()
+
+
+def _run_recording_probe(duration: float, min_rms: float) -> dict[str, object]:
+    summary = _empty_summary()
     try:
         output_dir = Path(tempfile.gettempdir()) / "jks-mic-probe"
         output_dir.mkdir(parents=True, exist_ok=True)

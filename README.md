@@ -167,7 +167,7 @@ Probe local microphone permission and signal without sending audio to any
 service:
 
 ```bash
-uv run python -m tools.jks_mic_probe --duration 1 --min-rms 0.0001
+uv run python -m tools.jks_mic_probe --duration 1 --min-rms 0.0001 --timeout 10
 ```
 
 Run a chained no-GUI/no-mic turn probe with a real audio file:

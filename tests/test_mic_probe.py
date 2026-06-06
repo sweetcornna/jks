@@ -1,6 +1,7 @@
 import io
 import json
 import tempfile
+import time
 import unittest
 import wave
 from pathlib import Path
@@ -45,6 +46,11 @@ class SilentRecorder(FakeRecorder):
         return output
 
 
+class HangingRecorder(FakeRecorder):
+    def start_recording(self):
+        time.sleep(1.0)
+
+
 class MicProbeCliTests(unittest.TestCase):
     def test_missing_duration_value_returns_error_without_recorder(self):
         stdout = io.StringIO()
@@ -85,6 +91,20 @@ class MicProbeCliTests(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["errors"][0]["error"], "mic_signal")
         self.assertEqual(payload["checks"]["rms"], 0)
+
+    def test_probe_times_out_when_audio_backend_hangs(self):
+        stdout = io.StringIO()
+        started = time.monotonic()
+
+        with mock.patch("tools.jks_mic_probe.AudioRecorder", HangingRecorder):
+            exit_code = main(["--duration", "0.01", "--timeout", "0.05"], stdout=stdout)
+
+        elapsed = time.monotonic() - started
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 1)
+        self.assertFalse(payload["ok"])
+        self.assertLess(elapsed, 0.5)
+        self.assertEqual(payload["errors"], [{"error": "mic_timeout", "message": "microphone probe timed out after 0.05s"}])
 
 
 if __name__ == "__main__":
