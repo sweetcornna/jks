@@ -46,6 +46,7 @@ Audio configs.
 uv run python -m tools.jks_smoke
 uv run python -m tools.jks_agent_probe
 uv run python -m tools.jks_config_check
+uv run python -m tools.jks_mic_probe --duration 1 --min-rms 0.0001
 uv run python -m tools.jks_contract_probe
 uv run python -m tools.jks_turn_probe --audio /path/to/input.wav --display --require-display-ack --display-ack-timeout 6 --play
 uv run python -m tools.jks_app_probe --audio /path/to/input.wav --require-display-ack --display-ack-timeout 6 --play
@@ -57,6 +58,7 @@ Expected:
 - `jks_smoke`: `ok:true`
 - `jks_agent_probe`: `ok:true`
 - `jks_config_check`: `ok:true`
+- `jks_mic_probe`: `ok:true`, non-zero `rms` / `peak`
 - `jks_contract_probe`: `ok:true`
 - `jks_turn_probe`: `server_events:["stt","chat","tts"]`
 - `jks_turn_probe`: `display_events` includes listening/transcribing/thinking/speaking/agent and no missing ACKs

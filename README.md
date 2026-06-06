@@ -158,6 +158,13 @@ Probe only Hermes / Gran Agent without requiring Fish Audio:
 uv run python -m tools.jks_agent_probe
 ```
 
+Probe local microphone permission and signal without sending audio to any
+service:
+
+```bash
+uv run python -m tools.jks_mic_probe --duration 1 --min-rms 0.0001
+```
+
 Run a chained no-GUI/no-mic turn probe with a real audio file:
 
 ```bash
