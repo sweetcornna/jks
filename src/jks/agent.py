@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from typing import Any, Iterable
 from urllib.parse import urlsplit
 
@@ -22,9 +23,15 @@ class AgentProviderError(RuntimeError):
 
 def parse_agent_reply(payload: Any) -> AgentReply:
     if isinstance(payload, str):
+        structured = _parse_json_object(payload)
+        if structured is not None:
+            return parse_agent_reply(structured)
         return AgentReply(text=payload)
     if isinstance(payload, dict):
         normalized = _unwrap_envelope(payload)
+        structured = _extract_structured_content(normalized)
+        if structured is not None:
+            normalized = structured
         text = _extract_text(normalized, allow_legacy_dict_stringify=normalized is payload)
         display_fields = _extract_display_fields(payload)
         if normalized is not payload:
@@ -51,6 +58,60 @@ def _first_present(mapping: dict[str, Any], keys: Iterable[str]) -> Any:
         if key in mapping and mapping[key] is not None:
             return mapping[key]
     return None
+
+
+def _parse_json_object(value: str) -> dict[str, Any] | None:
+    stripped = value.strip()
+    if not stripped.startswith("{") or not stripped.endswith("}"):
+        return None
+    try:
+        parsed = json.loads(stripped)
+    except ValueError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _extract_structured_content(payload: dict[str, Any]) -> dict[str, Any] | None:
+    content = _assistant_content(payload)
+    if not isinstance(content, str):
+        return None
+    parsed = _parse_json_object(content)
+    if parsed is None:
+        return None
+    if _first_present(parsed, ("text", "reply", "message", "content")) is None:
+        return None
+    return parsed
+
+
+def _assistant_content(payload: dict[str, Any]) -> Any:
+    choices = payload.get("choices")
+    if isinstance(choices, list) and choices:
+        first_choice = choices[0]
+        if isinstance(first_choice, dict):
+            message = first_choice.get("message")
+            if isinstance(message, dict):
+                return message.get("content")
+            if first_choice.get("text") is not None:
+                return first_choice.get("text")
+
+    messages = payload.get("messages")
+    if isinstance(messages, list) and messages:
+        selected = None
+        for message in messages:
+            if isinstance(message, dict) and message.get("role") == "assistant":
+                selected = message
+        if selected is None:
+            for message in reversed(messages):
+                if isinstance(message, dict):
+                    selected = message
+                    break
+        if isinstance(selected, dict):
+            return selected.get("content")
+
+    direct = _first_present(payload, ("message", "content"))
+    if isinstance(direct, dict):
+        return direct.get("content")
+    return direct
 
 
 def _content_to_text(content: Any, allow_dict_stringify: bool = False) -> str:
@@ -170,10 +231,17 @@ def _extract_text(payload: dict[str, Any], allow_legacy_dict_stringify: bool = F
 
 
 class HttpAgentClient:
-    def __init__(self, endpoint: str, token: str = "", timeout: float = 30.0):
+    def __init__(
+        self,
+        endpoint: str,
+        token: str = "",
+        timeout: float = 30.0,
+        model: str = "hermes-agent",
+    ):
         self.endpoint = endpoint
         self.token = token
         self.timeout = timeout
+        self.model = model or "hermes-agent"
 
     def send_message(self, text: str, conversation_id: str) -> AgentReply:
         if not self.endpoint:
@@ -184,7 +252,7 @@ class HttpAgentClient:
             headers["Authorization"] = f"Bearer {self.token}"
         if _uses_openai_chat_completions(self.endpoint):
             body = {
-                "model": "hermes-agent",
+                "model": self.model,
                 "messages": [{"role": "user", "content": text}],
                 "stream": False,
             }

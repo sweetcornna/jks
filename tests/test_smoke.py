@@ -15,8 +15,13 @@ class SmokeTests(unittest.TestCase):
         self.assertTrue(summary["agent_text"].startswith("Fake reply"))
         self.assertIn("listening", summary["display_emotions"])
         self.assertIn("speaking", summary["display_emotions"])
+        self.assertIn("DONE", summary["display_texts"])
+        self.assertEqual(summary["server_events"], ["stt", "chat", "tts"])
+        self.assertEqual(summary["server_chat_formats"], ["openai"])
+        self.assertEqual(summary["display_emotions"][-1], "happy")
+        self.assertEqual(summary["display_texts"][-1], "DONE")
         self.assertEqual(summary["played_count"], 1)
-        self.assertTrue({"stt", "chat", "tts"}.issubset(set(summary["server_events"])))
+        self.assertEqual(summary["recordings"], 1)
 
     def test_main_prints_compact_json_summary(self):
         output = io.StringIO()
@@ -27,6 +32,8 @@ class SmokeTests(unittest.TestCase):
         payload = json.loads(output.getvalue())
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["played_count"], 1)
+        self.assertEqual(payload["server_chat_formats"], ["openai"])
+        self.assertNotIn('": ', output.getvalue())
 
     def test_main_prints_json_failure_summary(self):
         output = io.StringIO()

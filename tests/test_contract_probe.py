@@ -39,8 +39,9 @@ class ContractProbeTests(unittest.TestCase):
         stdout = io.StringIO()
         try:
             env = {
-                "JKS_AGENT_ENDPOINT": server.base_url + "/chat?token=secret",
+                "JKS_AGENT_ENDPOINT": server.base_url + "/v1/chat/completions?token=secret",
                 "JKS_AGENT_TOKEN": "secret-token",
+                "JKS_AGENT_MODEL": "gran-agent",
                 "JKS_STT_ENDPOINT": server.base_url + "/stt?api_key=secret",
                 "JKS_TTS_ENDPOINT": server.base_url + "/tts?api_key=secret",
             }
@@ -59,9 +60,17 @@ class ContractProbeTests(unittest.TestCase):
         self.assertNotIn(": ", text)
         self.assertEqual(payload["checks"]["agent"]["mode"], "http")
         self.assertGreater(payload["checks"]["agent"]["text_length"], 0)
+        self.assertEqual(payload["checks"]["agent"]["emotion"], "happy")
+        self.assertTrue(payload["checks"]["agent"]["display_present"])
+        self.assertEqual(payload["checks"]["agent"]["display_text_length"], len("DONE"))
+        self.assertEqual(payload["checks"]["agent"]["duration_ms"], 1200)
+        self.assertEqual(payload["checks"]["agent"]["intensity"], "normal")
         self.assertEqual(payload["checks"]["speech"]["stt_text_length"], len("hello agent"))
         self.assertGreater(payload["checks"]["speech"]["tts_bytes"], 0)
         self.assertEqual([event["kind"] for event in server.events], ["chat", "stt", "tts"])
+        self.assertEqual(server.events[0]["format"], "openai")
+        self.assertEqual(server.events[0]["model"], "gran-agent")
+        self.assertIs(server.events[0]["auth_present"], True)
 
 
 if __name__ == "__main__":

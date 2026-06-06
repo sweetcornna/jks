@@ -143,6 +143,7 @@ def _make_handler(events: list[dict[str, object]], events_lock: threading.Lock):
                 conversation_id = payload.get("conversation_id")
                 self._record(
                     "chat",
+                    format="legacy",
                     message=message,
                     conversation_id=conversation_id,
                 )
@@ -154,6 +155,46 @@ def _make_handler(events: list[dict[str, object]], events_lock: threading.Lock):
                         "display_text": "DONE",
                         "duration_ms": 1200,
                         "intensity": "normal",
+                    },
+                )
+                return
+
+            if path == "/v1/chat/completions":
+                payload = self._read_json()
+                if payload is None:
+                    self._send_json(400, {"error": "invalid json"})
+                    return
+
+                message = self._last_user_message(payload)
+                reply_payload = {
+                    "text": f"Fake reply to: {message}",
+                    "emotion": "happy",
+                    "display_text": "DONE",
+                    "duration_ms": 1200,
+                    "intensity": "normal",
+                }
+                self._record(
+                    "chat",
+                    format="openai",
+                    message=message,
+                    model=payload.get("model"),
+                    stream=payload.get("stream"),
+                    session_id=self.headers.get("X-Hermes-Session-Id", ""),
+                    auth_present=bool(self.headers.get("Authorization")),
+                )
+                self._send_json(
+                    200,
+                    {
+                        "choices": [
+                            {
+                                "index": 0,
+                                "message": {
+                                    "role": "assistant",
+                                    "content": json.dumps(reply_payload),
+                                },
+                                "finish_reason": "stop",
+                            }
+                        ]
                     },
                 )
                 return
@@ -204,6 +245,38 @@ def _make_handler(events: list[dict[str, object]], events_lock: threading.Lock):
             event.update(fields)
             with events_lock:
                 events.append(event)
+
+        def _last_user_message(self, payload: dict[str, object]) -> str:
+            messages = payload.get("messages")
+            if not isinstance(messages, list):
+                return ""
+
+            fallback = ""
+            selected = ""
+            for item in messages:
+                if not isinstance(item, dict):
+                    continue
+                content = self._content_to_text(item.get("content"))
+                if content:
+                    fallback = content
+                if item.get("role") == "user" and content:
+                    selected = content
+            return selected or fallback
+
+        def _content_to_text(self, content: object) -> str:
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                parts = []
+                for item in content:
+                    if isinstance(item, str):
+                        parts.append(item)
+                    elif isinstance(item, dict):
+                        text = item.get("text")
+                        if isinstance(text, str):
+                            parts.append(text)
+                return "".join(parts)
+            return ""
 
         def _send_json(self, status: int, payload: dict[str, object]) -> None:
             body = json.dumps(payload).encode("utf-8")

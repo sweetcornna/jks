@@ -1,15 +1,19 @@
 # JKS Manual Acceptance Checklist
 
-Use this checklist only after `.env` contains real local endpoints or proxies for Hermes / Gran, STT, and TTS.
+Use this checklist only after `.env` contains a real local Hermes / Gran Agent
+endpoint plus either Fish Audio speech credentials or custom STT/TTS endpoints.
 
 For Hermes API Server, set:
 
 ```dotenv
 JKS_AGENT_ENDPOINT="http://127.0.0.1:8642/v1/chat/completions"
 JKS_AGENT_TOKEN="replace-with-local-api-server-key"
+JKS_AGENT_MODEL="hermes-agent"
 ```
 
 The token must match Hermes `API_SERVER_KEY`.
+If the Hermes profile exposes a different model name, set `JKS_AGENT_MODEL` to
+that value.
 
 For Fish Audio speech, set:
 
@@ -27,6 +31,7 @@ Use a Fish voice/reference id in `JKS_TTS_VOICE` if a specific voice is needed.
 
 ```bash
 uv run python -m tools.jks_smoke
+uv run python -m tools.jks_agent_probe
 uv run python -m tools.jks_config_check
 uv run python -m tools.jks_contract_probe
 uv run python -m tools.jks_turn_probe --audio /path/to/input.wav --play
@@ -36,6 +41,7 @@ uv run python -m tools.oled_smoke
 Expected:
 
 - `jks_smoke`: `ok:true`
+- `jks_agent_probe`: `ok:true`
 - `jks_config_check`: `ok:true`
 - `jks_contract_probe`: `ok:true`
 - `jks_turn_probe`: `server_events:["stt","chat","tts"]`
@@ -60,6 +66,7 @@ Record:
 - Transcript shows `You:` and `Agent:` text.
 - Agent reply is played as audio.
 - OLED shows speaking during playback and a completion or agent-selected expression after playback.
+- If the agent returns JSON content with `text`, `emotion`, and optional `display_text`, the spoken text and OLED expression both reflect it.
 - On OLED disconnect, the desktop still completes the voice turn and shows an OLED degraded prompt.
 - On STT / Agent / TTS failure, the UI preserves the available audio path, user text, or agent text.
 

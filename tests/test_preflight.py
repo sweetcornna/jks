@@ -12,6 +12,7 @@ def config(**overrides):
         "agent_auth_method": "",
         "agent_endpoint": "",
         "agent_token": "",
+        "agent_model": "hermes-agent",
         "stt_provider": "",
         "stt_endpoint": "",
         "stt_token": "",
@@ -43,6 +44,7 @@ class PreflightTests(unittest.TestCase):
             config(
                 agent_endpoint="http://127.0.0.1:8787/chat",
                 agent_token="secret-token",
+                agent_model="gran-agent",
                 stt_provider="http",
                 stt_endpoint="http://127.0.0.1:8788/stt",
                 stt_token="stt-secret",
@@ -57,6 +59,7 @@ class PreflightTests(unittest.TestCase):
         self.assertTrue(summary["ready_for_real"])
         self.assertEqual(summary["agent"]["mode"], "http")
         self.assertEqual(summary["agent"]["token"], "<redacted:12>")
+        self.assertEqual(summary["agent"]["model"], "gran-agent")
         self.assertEqual(summary["speech"]["mode"], "http")
         self.assertEqual(summary["speech"]["stt_token"], "<redacted:10>")
         self.assertEqual(summary["speech"]["tts_token"], "<redacted:10>")
@@ -78,6 +81,27 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(summary["speech"]["mode"], "fish")
         self.assertEqual(summary["speech"]["fish_api_key"], "<redacted:11>")
         self.assertEqual(summary["speech"]["fish_tts_model"], "s2-pro")
+
+    def test_fish_speech_ignores_unused_http_speech_placeholders(self):
+        summary = analyze_config(
+            config(
+                agent_endpoint="http://agent.local/chat",
+                stt_provider="fish",
+                stt_endpoint="replace-with-stt-endpoint",
+                stt_token="replace-with-stt-token",
+                tts_provider="fish",
+                tts_endpoint="replace-with-tts-endpoint",
+                tts_token="replace-with-tts-token",
+                fish_api_key="fish-secret",
+            )
+        )
+
+        self.assertTrue(summary["ok"])
+        self.assertEqual(summary["speech"]["mode"], "fish")
+        self.assertNotIn("JKS_STT_ENDPOINT", summary["missing"])
+        self.assertNotIn("JKS_TTS_ENDPOINT", summary["missing"])
+        self.assertNotIn("JKS_STT_TOKEN", summary["missing"])
+        self.assertNotIn("JKS_TTS_TOKEN", summary["missing"])
 
     def test_fish_speech_provider_requires_api_key(self):
         summary = analyze_config(
@@ -103,7 +127,7 @@ class PreflightTests(unittest.TestCase):
         self.assertIn("JKS_STT_ENDPOINT", summary["missing"])
         self.assertIn("JKS_TTS_ENDPOINT", summary["missing"])
         self.assertIn(
-            "Real agent integration requires JKS_STT_ENDPOINT and JKS_TTS_ENDPOINT",
+            "Real agent integration requires Fish Audio or custom STT/TTS endpoints",
             summary["warnings"],
         )
 
@@ -181,10 +205,25 @@ class PreflightTests(unittest.TestCase):
         self.assertIn("JKS_AGENT_TOKEN", summary["missing"])
         self.assertIn("JKS_STT_TOKEN", summary["missing"])
         self.assertIn("JKS_TTS_TOKEN", summary["missing"])
-        self.assertIn("JKS_FISH_API_KEY", summary["missing"])
-        self.assertIn("JKS_FISH_TTS_MODEL", summary["missing"])
         self.assertIn("JKS_TTS_VOICE", summary["missing"])
         self.assertIn("JKS_OLED_PORT", summary["missing"])
+        self.assertIn("placeholder values must be replaced before real integration", summary["warnings"])
+
+    def test_fish_placeholder_runtime_fields_are_not_ready(self):
+        summary = analyze_config(
+            config(
+                agent_endpoint="http://agent.local/chat",
+                stt_provider="fish",
+                tts_provider="fish",
+                fish_api_key="replace-with-fish-api-key",
+                fish_tts_model="replace-with-fish-tts-model",
+            )
+        )
+
+        self.assertFalse(summary["ok"])
+        self.assertEqual(summary["speech"]["mode"], "partial")
+        self.assertIn("JKS_FISH_API_KEY", summary["missing"])
+        self.assertIn("JKS_FISH_TTS_MODEL", summary["missing"])
         self.assertIn("placeholder values must be replaced before real integration", summary["warnings"])
 
     def test_partial_speech_config_reports_missing_pair(self):

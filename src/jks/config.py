@@ -13,6 +13,7 @@ class AppConfig:
     agent_auth_method: str
     agent_endpoint: str
     agent_token: str
+    agent_model: str
     stt_provider: str
     stt_endpoint: str
     stt_token: str
@@ -78,6 +79,7 @@ def load_config(env_file: Optional[Union[os.PathLike[str], str]] = ".env") -> Ap
         agent_auth_method=settings.get("JKS_AGENT_AUTH_METHOD", ""),
         agent_endpoint=settings.get("JKS_AGENT_ENDPOINT", ""),
         agent_token=settings.get("JKS_AGENT_TOKEN", ""),
+        agent_model=settings.get("JKS_AGENT_MODEL", "hermes-agent"),
         stt_provider=settings.get("JKS_STT_PROVIDER", ""),
         stt_endpoint=settings.get("JKS_STT_ENDPOINT", ""),
         stt_token=settings.get("JKS_STT_TOKEN", ""),

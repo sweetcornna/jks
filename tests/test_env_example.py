@@ -8,6 +8,7 @@ REQUIRED_KEYS = (
     "JKS_AGENT_AUTH_METHOD",
     "JKS_AGENT_ENDPOINT",
     "JKS_AGENT_TOKEN",
+    "JKS_AGENT_MODEL",
     "JKS_STT_PROVIDER",
     "JKS_STT_ENDPOINT",
     "JKS_STT_TOKEN",
@@ -35,6 +36,18 @@ class EnvExampleTests(unittest.TestCase):
             self.assertNotIn(forbidden, text)
 
         self.assertIn("replace-with-", text)
+
+    def test_env_example_defaults_to_fish_without_active_http_speech_placeholders(self):
+        lines = Path(".env.example").read_text().splitlines()
+        active_lines = [line for line in lines if line and not line.startswith("#")]
+        active_text = "\n".join(active_lines)
+
+        self.assertIn('JKS_STT_PROVIDER="fish"', active_text)
+        self.assertIn('JKS_TTS_PROVIDER="fish"', active_text)
+        self.assertNotIn("JKS_STT_ENDPOINT=", active_text)
+        self.assertNotIn("JKS_STT_TOKEN=", active_text)
+        self.assertNotIn("JKS_TTS_ENDPOINT=", active_text)
+        self.assertNotIn("JKS_TTS_TOKEN=", active_text)
 
 
 if __name__ == "__main__":

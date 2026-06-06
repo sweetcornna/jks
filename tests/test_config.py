@@ -18,6 +18,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(getattr(config, "agent_auth_method", None), "")
         self.assertEqual(config.agent_endpoint, "")
         self.assertEqual(config.agent_token, "")
+        self.assertEqual(config.agent_model, "hermes-agent")
         self.assertEqual(getattr(config, "stt_provider", None), "")
         self.assertEqual(config.stt_endpoint, "")
         self.assertEqual(config.stt_token, "")
@@ -37,6 +38,7 @@ class ConfigTests(unittest.TestCase):
             "JKS_AGENT_AUTH_METHOD": "token",
             "JKS_AGENT_ENDPOINT": "http://127.0.0.1:8787/chat",
             "JKS_AGENT_TOKEN": "secret-token",
+            "JKS_AGENT_MODEL": "gran-agent",
             "JKS_STT_PROVIDER": "whisper",
             "JKS_STT_ENDPOINT": "http://127.0.0.1:8788/stt",
             "JKS_STT_TOKEN": "stt-secret",
@@ -57,6 +59,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(getattr(config, "agent_auth_method", None), "token")
         self.assertEqual(config.agent_endpoint, env["JKS_AGENT_ENDPOINT"])
         self.assertEqual(config.agent_token, "secret-token")
+        self.assertEqual(config.agent_model, "gran-agent")
         self.assertEqual(getattr(config, "stt_provider", None), "whisper")
         self.assertEqual(config.stt_endpoint, env["JKS_STT_ENDPOINT"])
         self.assertEqual(config.stt_token, "stt-secret")

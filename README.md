@@ -34,18 +34,21 @@ The app and CLI tools load `.env` from the current working directory by default;
 shell environment variables override file values. Placeholder values such as
 `replace-with-*` intentionally fail readiness checks.
 
-Required real-service values:
+Required real-service values for the Hermes + Fish Audio path:
 
 ```text
 JKS_AGENT_ENDPOINT
 JKS_STT_PROVIDER
 JKS_TTS_PROVIDER
-JKS_TTS_VOICE
+JKS_FISH_API_KEY
 JKS_OLED_PORT
 JKS_OLED_BAUD
 ```
 
 `JKS_AGENT_TOKEN` is optional when the endpoint does not require bearer auth.
+`JKS_AGENT_MODEL` defaults to `hermes-agent`, `JKS_FISH_TTS_MODEL` defaults to
+`s2-pro`, and `JKS_TTS_VOICE` defaults to `default`. Set `JKS_TTS_VOICE` only
+when using a specific Fish voice/reference id.
 
 ### Hermes API Server
 
@@ -55,11 +58,23 @@ Completions endpoint:
 ```dotenv
 JKS_AGENT_ENDPOINT="http://127.0.0.1:8642/v1/chat/completions"
 JKS_AGENT_TOKEN="replace-with-hermes-api-server-key"
+JKS_AGENT_MODEL="hermes-agent"
 ```
 
 `JKS_AGENT_TOKEN` must match the Hermes `API_SERVER_KEY` value. JKS sends
-`model:"hermes-agent"`, a single user message, `stream:false`, and a
+`JKS_AGENT_MODEL`, a single user message, `stream:false`, and a
 `X-Hermes-Session-Id` header for conversation continuity.
+
+If a Hermes profile advertises another model name, set `JKS_AGENT_MODEL` to that
+name. For OLED control through OpenAI Chat Completions, the agent may return a
+JSON object as message content:
+
+```json
+{"text":"Sure, I am listening.","emotion":"happy","display_text":"YAY","duration_ms":1200,"intensity":"high"}
+```
+
+JKS treats `text` as the spoken reply and clamps the display fields through the
+local expression safety layer.
 
 ### Fish Audio Speech
 
@@ -114,6 +129,12 @@ Probe configured real contracts:
 
 ```bash
 uv run python -m tools.jks_contract_probe
+```
+
+Probe only Hermes / Gran Agent without requiring Fish Audio:
+
+```bash
+uv run python -m tools.jks_agent_probe
 ```
 
 Run a chained no-GUI/no-mic turn probe with a real audio file:

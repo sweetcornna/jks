@@ -13,6 +13,7 @@ from jks.agent import HttpAgentClient
 from jks.config import load_config
 from jks.preflight import analyze_config
 from jks.speech import build_speech_client
+from tools.jks_probe_summary import summarize_agent_reply
 
 
 def _write_silent_wav(path: Path) -> None:
@@ -39,12 +40,13 @@ def run_probe() -> dict[str, object]:
     errors: list[dict[str, str]] = []
 
     try:
-        agent_reply = HttpAgentClient(config.agent_endpoint, config.agent_token, timeout=10.0).probe_contract()
-        checks["agent"] = {
-            "mode": "http",
-            "text_length": len(agent_reply.text),
-            "emotion": agent_reply.emotion,
-        }
+        agent_reply = HttpAgentClient(
+            config.agent_endpoint,
+            config.agent_token,
+            timeout=10.0,
+            model=config.agent_model,
+        ).probe_contract()
+        checks["agent"] = summarize_agent_reply(agent_reply)
     except Exception as exc:
         errors.append({"error": "agent", "message": str(exc)})
 

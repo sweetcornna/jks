@@ -52,6 +52,74 @@ class AgentClientTests(unittest.TestCase):
 
         self.assertEqual(reply, AgentReply(text="choice answer"))
 
+    def test_parse_openai_like_choice_json_content_as_display_intent(self):
+        reply = parse_agent_reply(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": json.dumps(
+                                {
+                                    "text": "choice answer",
+                                    "emotion": "surprised",
+                                    "display_text": "WOW",
+                                    "duration_ms": 1600,
+                                    "intensity": "high",
+                                }
+                            ),
+                        }
+                    }
+                ]
+            }
+        )
+
+        self.assertEqual(
+            reply,
+            AgentReply(
+                text="choice answer",
+                emotion="surprised",
+                display_text="WOW",
+                duration_ms=1600,
+                intensity="high",
+            ),
+        )
+
+    def test_parse_openai_like_choice_json_content_with_nested_display_intent(self):
+        reply = parse_agent_reply(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": json.dumps(
+                                {
+                                    "text": "choice answer",
+                                    "display_intent": {
+                                        "emotion": "thinking",
+                                        "text": "WAIT",
+                                        "duration_ms": 1400,
+                                        "intensity": "normal",
+                                    },
+                                }
+                            ),
+                        }
+                    }
+                ]
+            }
+        )
+
+        self.assertEqual(
+            reply,
+            AgentReply(
+                text="choice answer",
+                emotion="thinking",
+                display_text="WAIT",
+                duration_ms=1400,
+                intensity="normal",
+            ),
+        )
+
     def test_parse_nested_result_output_envelope(self):
         reply = parse_agent_reply(
             {
@@ -334,6 +402,23 @@ class AgentClientTests(unittest.TestCase):
         )
         self.assertEqual(post.call_args.kwargs["headers"]["Authorization"], "Bearer api-key")
         self.assertEqual(post.call_args.kwargs["headers"]["X-Hermes-Session-Id"], "conv-1")
+
+    def test_http_client_uses_configured_openai_chat_model(self):
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {"choices": [{"message": {"content": "ok"}}]}
+
+        with patch("jks.agent.requests.post", return_value=FakeResponse()) as post:
+            client = HttpAgentClient(
+                "http://127.0.0.1:8642/v1/chat/completions",
+                model="gran-agent",
+            )
+            client.send_message("hello", "conv-1")
+
+        self.assertEqual(post.call_args.kwargs["json"]["model"], "gran-agent")
 
     def test_http_client_does_not_send_empty_hermes_session_header(self):
         class FakeResponse:

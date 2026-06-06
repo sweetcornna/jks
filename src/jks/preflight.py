@@ -76,14 +76,39 @@ def analyze_config(config: AppConfig) -> dict[str, object]:
             return False
         return True
 
-    agent_token_placeholder = field_has_placeholder(config.agent_token, "JKS_AGENT_TOKEN")
-    stt_token_placeholder = field_has_placeholder(config.stt_token, "JKS_STT_TOKEN")
-    tts_token_placeholder = field_has_placeholder(config.tts_token, "JKS_TTS_TOKEN")
-    fish_api_key_placeholder = field_has_placeholder(config.fish_api_key, "JKS_FISH_API_KEY")
-    fish_tts_model_placeholder = field_has_placeholder(
-        config.fish_tts_model, "JKS_FISH_TTS_MODEL"
+    stt_provider = config.stt_provider.lower()
+    tts_provider = config.tts_provider.lower()
+    wants_fish_speech = stt_provider == "fish" or tts_provider == "fish"
+    wants_http_stt = stt_provider == "http" or (
+        bool(config.stt_endpoint) and stt_provider != "fish"
     )
-    tts_voice_placeholder = field_has_placeholder(config.tts_voice, "JKS_TTS_VOICE")
+    wants_http_tts = tts_provider == "http" or (
+        bool(config.tts_endpoint) and tts_provider != "fish"
+    )
+    wants_http_speech = wants_http_stt or wants_http_tts
+
+    agent_token_placeholder = field_has_placeholder(config.agent_token, "JKS_AGENT_TOKEN")
+    stt_token_placeholder = (
+        field_has_placeholder(config.stt_token, "JKS_STT_TOKEN") if wants_http_stt else False
+    )
+    tts_token_placeholder = (
+        field_has_placeholder(config.tts_token, "JKS_TTS_TOKEN") if wants_http_tts else False
+    )
+    fish_api_key_placeholder = (
+        field_has_placeholder(config.fish_api_key, "JKS_FISH_API_KEY")
+        if wants_fish_speech
+        else False
+    )
+    fish_tts_model_placeholder = (
+        field_has_placeholder(config.fish_tts_model, "JKS_FISH_TTS_MODEL")
+        if wants_fish_speech
+        else False
+    )
+    tts_voice_placeholder = (
+        field_has_placeholder(config.tts_voice, "JKS_TTS_VOICE")
+        if wants_fish_speech or wants_http_tts
+        else False
+    )
 
     agent_endpoint_ready = endpoint_is_ready(config.agent_endpoint, "JKS_AGENT_ENDPOINT")
     if agent_endpoint_ready:
@@ -93,17 +118,21 @@ def analyze_config(config: AppConfig) -> dict[str, object]:
         if not config.agent_endpoint:
             add_missing("JKS_AGENT_ENDPOINT")
 
-    stt_provider = config.stt_provider.lower()
-    tts_provider = config.tts_provider.lower()
-    wants_fish_speech = stt_provider == "fish" or tts_provider == "fish"
-    stt_endpoint_ready = endpoint_is_ready(config.stt_endpoint, "JKS_STT_ENDPOINT")
-    tts_endpoint_ready = endpoint_is_ready(config.tts_endpoint, "JKS_TTS_ENDPOINT")
-    wants_http_stt = stt_provider == "http" or bool(config.stt_endpoint)
-    wants_http_tts = tts_provider == "http" or bool(config.tts_endpoint)
-    wants_http_speech = wants_http_stt or wants_http_tts
+    stt_endpoint_ready = (
+        endpoint_is_ready(config.stt_endpoint, "JKS_STT_ENDPOINT") if wants_http_stt else False
+    )
+    tts_endpoint_ready = (
+        endpoint_is_ready(config.tts_endpoint, "JKS_TTS_ENDPOINT") if wants_http_tts else False
+    )
 
     if wants_fish_speech:
-        if stt_provider == "fish" and tts_provider == "fish" and config.fish_api_key:
+        if (
+            stt_provider == "fish"
+            and tts_provider == "fish"
+            and config.fish_api_key
+            and not fish_api_key_placeholder
+            and not fish_tts_model_placeholder
+        ):
             speech_mode = "fish"
         else:
             speech_mode = "partial"
@@ -129,7 +158,7 @@ def analyze_config(config: AppConfig) -> dict[str, object]:
     if agent_mode == "http" and speech_mode == "fake":
         add_missing("JKS_STT_ENDPOINT")
         add_missing("JKS_TTS_ENDPOINT")
-        add_warning("Real agent integration requires JKS_STT_ENDPOINT and JKS_TTS_ENDPOINT")
+        add_warning("Real agent integration requires Fish Audio or custom STT/TTS endpoints")
 
     oled_port_placeholder = field_has_placeholder(config.oled_port, "JKS_OLED_PORT")
     oled_mode = "serial" if config.oled_port and not oled_port_placeholder else "disabled"
@@ -158,6 +187,7 @@ def analyze_config(config: AppConfig) -> dict[str, object]:
             "user": config.agent_user,
             "auth_method": config.agent_auth_method,
             "token": redact_secret(config.agent_token),
+            "model": config.agent_model,
         },
         "speech": {
             "mode": speech_mode,

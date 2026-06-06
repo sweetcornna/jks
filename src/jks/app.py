@@ -45,7 +45,7 @@ def build_orchestrator(
     return ConversationOrchestrator(
         recorder=recorder or AudioRecorder(),
         speech=speech,
-        agent=HttpAgentClient(config.agent_endpoint, config.agent_token),
+        agent=HttpAgentClient(config.agent_endpoint, config.agent_token, model=config.agent_model),
         display=display,
         player=player or AudioPlayer(),
         voice=config.tts_voice,

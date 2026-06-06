@@ -139,6 +139,7 @@ def sample_config(**overrides):
         "agent_auth_method": "",
         "agent_endpoint": "",
         "agent_token": "",
+        "agent_model": "hermes-agent",
         "stt_provider": "",
         "stt_endpoint": "",
         "stt_token": "",

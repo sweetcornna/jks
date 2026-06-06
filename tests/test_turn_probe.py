@@ -73,8 +73,9 @@ class TurnProbeCliTests(unittest.TestCase):
                 audio_path = Path(temp_dir) / "input.wav"
                 write_silent_wav(audio_path)
                 env = {
-                    "JKS_AGENT_ENDPOINT": server.base_url + "/chat?token=secret",
+                    "JKS_AGENT_ENDPOINT": server.base_url + "/v1/chat/completions?token=secret",
                     "JKS_AGENT_TOKEN": "secret-token",
+                    "JKS_AGENT_MODEL": "gran-agent",
                     "JKS_STT_ENDPOINT": server.base_url + "/stt?api_key=secret",
                     "JKS_TTS_ENDPOINT": server.base_url + "/tts?api_key=secret",
                     "JKS_TTS_VOICE": "warm",
@@ -98,10 +99,16 @@ class TurnProbeCliTests(unittest.TestCase):
         self.assertEqual(payload["checks"]["stt"], {"text_length": len("hello agent")})
         self.assertEqual(payload["checks"]["agent"]["text_length"], len("Fake reply to: hello agent"))
         self.assertEqual(payload["checks"]["agent"]["emotion"], "happy")
+        self.assertTrue(payload["checks"]["agent"]["display_present"])
+        self.assertEqual(payload["checks"]["agent"]["display_text_length"], len("DONE"))
+        self.assertEqual(payload["checks"]["agent"]["duration_ms"], 1200)
+        self.assertEqual(payload["checks"]["agent"]["intensity"], "normal")
         self.assertGreater(payload["checks"]["tts"]["bytes"], 0)
         self.assertEqual(payload["checks"]["tts"]["voice"], "warm")
         self.assertEqual(payload["server_events"], ["stt", "chat", "tts"])
         self.assertEqual([event["kind"] for event in server.events], ["stt", "chat", "tts"])
+        self.assertEqual(server.events[1]["format"], "openai")
+        self.assertEqual(server.events[1]["model"], "gran-agent")
 
     def test_verbose_probe_includes_transcripts_for_local_debugging(self):
         server = start_fake_services()

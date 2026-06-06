@@ -56,7 +56,11 @@ def run_smoke() -> dict[str, object]:
                 tts_endpoint=server.base_url + "/tts",
                 output_dir=output_dir,
             )
-            agent = HttpAgentClient(server.base_url + "/chat", timeout=5.0)
+            agent = HttpAgentClient(
+                server.base_url + "/v1/chat/completions",
+                timeout=5.0,
+                model="gran-agent",
+            )
             orchestrator = ConversationOrchestrator(
                 recorder=recorder,
                 speech=speech,
@@ -76,6 +80,11 @@ def run_smoke() -> dict[str, object]:
                 "display_texts": [intent.text for intent in display.intents],
                 "played_count": len(player.played),
                 "server_events": [event["kind"] for event in server.events],
+                "server_chat_formats": [
+                    str(event.get("format", ""))
+                    for event in server.events
+                    if event.get("kind") == "chat"
+                ],
                 "recordings": recorder.recordings,
             }
     finally:
