@@ -739,6 +739,36 @@ class AgentClientTests(unittest.TestCase):
         self.assertIn(AgentTraceEvent(source="process", message="Hermes final response received"), events)
         self.assertEqual(reply, AgentReply(text="local reply", emotion="happy"))
 
+    def test_local_hermes_client_falls_back_to_codex_when_grantly_provider_is_unavailable(self):
+        hermes_failure = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="API call failed after 2 retries: HTTP 503: Service temporarily unavailable",
+            stderr="",
+        )
+        codex_success = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+
+        def fake_run(command, **kwargs):
+            if command[0].endswith("jksgrantly"):
+                return hermes_failure
+            self.assertEqual(command[:2], ["codex", "exec"])
+            output_flag = command.index("--output-last-message")
+            output_path = command[output_flag + 1]
+            with open(output_path, "w") as output:
+                output.write('{"text":"codex reply","emotion":"happy"}')
+            return codex_success
+
+        with patch("jks.agent.subprocess.run", side_effect=fake_run) as run:
+            client = LocalHermesAgentClient(
+                command="/Users/cornna/project/jks/.local/bin/jksgrantly",
+                workdir="/Users/cornna/project/jks/.local/hermes-agent",
+                model="",
+            )
+            reply = client.send_message("hello", "conv-1")
+
+        self.assertEqual(reply, AgentReply(text="codex reply", emotion="happy"))
+        self.assertEqual(run.call_count, 2)
+
     def test_local_hermes_client_normalizes_relative_runtime_paths(self):
         client = LocalHermesAgentClient(
             command=".local/bin/jksgrantly",

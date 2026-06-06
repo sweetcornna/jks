@@ -21,6 +21,37 @@ ALLOWED_EMOTIONS = {
     "error",
 }
 
+ALLOWED_EYE_STYLES = {
+    "dot",
+    "blink",
+    "happy",
+    "wide",
+    "side",
+    "sleepy",
+    "sad",
+    "angry",
+    "cross",
+}
+
+ALLOWED_MOUTH_STYLES = {
+    "flat",
+    "smile",
+    "small",
+    "open",
+    "talk1",
+    "talk2",
+    "sad",
+}
+
+ALLOWED_MOTIONS = {
+    "still",
+    "blink",
+    "bob",
+    "shake",
+    "talk",
+    "bounce",
+}
+
 def _build_baud_rates() -> dict[int, int]:
     rates = {}
     for baud in (9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600):
@@ -34,11 +65,22 @@ _BAUD_RATES = _build_baud_rates()
 
 
 @dataclass(frozen=True)
+class FacePattern:
+    left_eye: str = "dot"
+    right_eye: str = "dot"
+    mouth: str = "flat"
+    x_offset: int = 0
+    y_offset: int = 0
+    motion: str = "bob"
+
+
+@dataclass(frozen=True)
 class DisplayIntent:
     emotion: str
     text: str = ""
     duration_ms: int = 1200
     intensity: str = "normal"
+    pattern: Optional[FacePattern] = None
 
 
 def _oled_text(text: object, limit: int = 14) -> str:
@@ -54,15 +96,27 @@ class DisplayController:
     def show(self, intent: DisplayIntent) -> None:
         emotion = intent.emotion if intent.emotion in ALLOWED_EMOTIONS else "neutral"
         text = intent.text or emotion.upper()
-        self._write(
-            {
-                "cmd": "emotion",
-                "name": emotion,
-                "text": _oled_text(text),
-                "duration_ms": _duration_ms(intent.duration_ms),
-                "intensity": _intensity(intent.intensity),
-            }
-        )
+        payload = {
+            "cmd": "emotion",
+            "name": emotion,
+            "text": _oled_text(text),
+            "duration_ms": _duration_ms(intent.duration_ms),
+            "intensity": _intensity(intent.intensity),
+        }
+        if intent.pattern is not None:
+            pattern = _face_pattern(intent.pattern)
+            payload.update(
+                {
+                    "cmd": "face",
+                    "left_eye": pattern.left_eye,
+                    "right_eye": pattern.right_eye,
+                    "mouth": pattern.mouth,
+                    "x_offset": pattern.x_offset,
+                    "y_offset": pattern.y_offset,
+                    "motion": pattern.motion,
+                }
+            )
+        self._write(payload)
 
     def clear(self) -> None:
         self._write({"cmd": "clear"})
@@ -127,6 +181,46 @@ def _intensity(raw: object) -> str:
     if value in {"soft", "normal", "high"}:
         return value
     return "normal"
+
+
+def _face_pattern(pattern: FacePattern) -> FacePattern:
+    return FacePattern(
+        left_eye=_eye_style(pattern.left_eye),
+        right_eye=_eye_style(pattern.right_eye),
+        mouth=_mouth_style(pattern.mouth),
+        x_offset=_offset(pattern.x_offset),
+        y_offset=_offset(pattern.y_offset),
+        motion=_motion(pattern.motion),
+    )
+
+
+def _eye_style(raw: object) -> str:
+    value = str(raw)
+    if value in ALLOWED_EYE_STYLES:
+        return value
+    return "dot"
+
+
+def _mouth_style(raw: object) -> str:
+    value = str(raw)
+    if value in ALLOWED_MOUTH_STYLES:
+        return value
+    return "flat"
+
+
+def _offset(raw: object) -> int:
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return 0
+    return max(-4, min(value, 4))
+
+
+def _motion(raw: object) -> str:
+    value = str(raw)
+    if value in ALLOWED_MOTIONS:
+        return value
+    return "bob"
 
 
 def _configure_serial_fd(fd: int, baud: int) -> None:

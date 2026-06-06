@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import shlex
 import subprocess
+import tempfile
 import threading
 import time
 from typing import Any, Callable, Iterable
@@ -350,16 +351,22 @@ class LocalHermesAgentClient:
         session_name = _ssh_session_name(conversation_id)
         prompt = _voice_json_prompt(text)
         command = self._build_command(session_name, prompt)
-        if trace_callback is None:
-            stdout = self._run_command(command)
-        else:
-            stdout = self._run_command_with_trace(command, session_name, trace_callback)
+        try:
+            if trace_callback is None:
+                stdout = self._run_command(command)
+            else:
+                stdout = self._run_command_with_trace(command, session_name, trace_callback)
 
-        reply = parse_agent_reply(stdout.strip())
-        _reject_provider_error_text(reply.text)
-        if not reply.text.strip():
-            raise AgentProviderError("agent response did not contain text")
-        return reply
+            reply = parse_agent_reply(stdout.strip())
+            _reject_provider_error_text(reply.text)
+            if not reply.text.strip():
+                raise AgentProviderError("agent response did not contain text")
+            return reply
+        except AgentProviderError:
+            fallback = self._run_codex_fallback(prompt, trace_callback)
+            if fallback is not None:
+                return fallback
+            raise
 
     def _build_command(self, session_name: str, prompt: str) -> list[str]:
         command = [self.command, "--continue", session_name]
@@ -428,6 +435,56 @@ class LocalHermesAgentClient:
 
         _emit_trace(trace_callback, "process", "Hermes final response received")
         return stdout
+
+    def _run_codex_fallback(
+        self,
+        prompt: str,
+        trace_callback: Callable[[AgentTraceEvent], None] | None,
+    ) -> AgentReply | None:
+        if Path(self.command).name != "jksgrantly":
+            return None
+
+        output_path = ""
+        try:
+            fd, output_path = tempfile.mkstemp(prefix="jks-codex-reply-", suffix=".json")
+            os.close(fd)
+            _emit_trace(
+                trace_callback,
+                "process",
+                "Hermes provider unavailable; trying Codex fallback",
+            )
+            subprocess.run(
+                [
+                    "codex",
+                    "exec",
+                    "--skip-git-repo-check",
+                    "--ignore-rules",
+                    "--cd",
+                    _codex_fallback_cwd(self.command),
+                    "--output-last-message",
+                    output_path,
+                    prompt,
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=self.timeout,
+                env=os.environ.copy(),
+            )
+            reply = parse_agent_reply(Path(output_path).read_text().strip())
+            _reject_provider_error_text(reply.text)
+            if not reply.text.strip():
+                return None
+            _emit_trace(trace_callback, "process", "Codex fallback response received")
+            return reply
+        except Exception:
+            return None
+        finally:
+            if output_path:
+                try:
+                    Path(output_path).unlink()
+                except OSError:
+                    pass
 
     def _watch_session_trace(
         self,
@@ -635,6 +692,14 @@ def _absolute_runtime_path(value: str) -> str:
     return os.path.abspath(value)
 
 
+def _codex_fallback_cwd(command: str) -> str:
+    command_path = Path(command).resolve()
+    if command_path.name == "jksgrantly":
+        runtime_dir = command_path.parent.parent
+        return str(runtime_dir.parent)
+    return os.getcwd()
+
+
 def _ssh_model_override(config) -> str:
     return _command_model_override(config)
 
@@ -668,7 +733,11 @@ def _voice_json_contract() -> str:
         "OLED label. Optional display_sequence may contain up to 4 objects with "
         "emotion, display_text, duration_ms, intensity for OLED screen steps. "
         "Optional display_commands may contain up to 4 whitelisted commands: "
-        "emotion, text, or clear. Do not include markdown."
+        "emotion, text, clear, face, or pattern. face/pattern may include "
+        "left_eye and right_eye from dot, blink, happy, wide, side, sleepy, sad, "
+        "angry, cross; mouth from flat, smile, small, open, talk1, talk2, sad; "
+        "motion from still, blink, bob, shake, talk, bounce; and x_offset/y_offset "
+        "integers from -4 to 4. Prefer motion for lively expressions. Do not include markdown."
     )
 
 

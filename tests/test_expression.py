@@ -1,6 +1,6 @@
 import unittest
 
-from jks.display import ALLOWED_EMOTIONS, DisplayIntent
+from jks.display import ALLOWED_EMOTIONS, DisplayIntent, FacePattern
 from jks.expression import DisplayCommand, ExpressionEngine, ExpressionFrame, TurnState
 
 
@@ -204,6 +204,117 @@ class ExpressionTests(unittest.TestCase):
                 DisplayCommand(
                     "show",
                     DisplayIntent("sleepy", "LOW", duration_ms=1800, intensity="soft"),
+                ),
+            ],
+        )
+
+    def test_agent_face_command_controls_whitelisted_pattern_parts(self):
+        engine = ExpressionEngine()
+
+        actions = engine.display_actions_from_agent(
+            {
+                "display_commands": [
+                    {
+                        "cmd": "face",
+                        "emotion": "happy",
+                        "display_text": "FACE",
+                        "left_eye": "wide",
+                        "right_eye": "cross",
+                        "mouth": "open",
+                        "x_offset": 99,
+                        "y_offset": -99,
+                        "motion": "talk",
+                        "duration_ms": 800,
+                        "intensity": "high",
+                    },
+                    {
+                        "cmd": "pattern",
+                        "text": "BAD",
+                        "left_eye": "laser",
+                        "right_eye": "wide",
+                        "mouth": "bad",
+                        "motion": "laser",
+                    },
+                ]
+            }
+        )
+
+        self.assertEqual(
+            actions,
+            [
+                DisplayCommand(
+                    "show",
+                    DisplayIntent(
+                        "happy",
+                        "FACE",
+                        duration_ms=800,
+                        intensity="high",
+                        pattern=FacePattern(
+                            left_eye="wide",
+                            right_eye="cross",
+                            mouth="open",
+                            x_offset=4,
+                            y_offset=-4,
+                            motion="talk",
+                        ),
+                    ),
+                ),
+                DisplayCommand(
+                    "show",
+                    DisplayIntent(
+                        "neutral",
+                        "BAD",
+                        duration_ms=1200,
+                        intensity="soft",
+                        pattern=FacePattern(
+                            left_eye="dot",
+                            right_eye="wide",
+                            mouth="flat",
+                            x_offset=0,
+                            y_offset=0,
+                            motion="bob",
+                        ),
+                    ),
+                ),
+            ],
+        )
+
+    def test_agent_face_command_inherits_top_level_display_defaults(self):
+        engine = ExpressionEngine()
+
+        actions = engine.display_actions_from_agent(
+            {
+                "emotion": "happy",
+                "duration_ms": 700,
+                "intensity": "high",
+                "display_commands": [
+                    {
+                        "cmd": "face",
+                        "text": "FACE",
+                        "left_eye": "wide",
+                        "right_eye": "cross",
+                        "mouth": "open",
+                    }
+                ],
+            }
+        )
+
+        self.assertEqual(
+            actions,
+            [
+                DisplayCommand(
+                    "show",
+                    DisplayIntent(
+                        "happy",
+                        "FACE",
+                        duration_ms=700,
+                        intensity="high",
+                        pattern=FacePattern(
+                            left_eye="wide",
+                            right_eye="cross",
+                            mouth="open",
+                        ),
+                    ),
                 ),
             ],
         )

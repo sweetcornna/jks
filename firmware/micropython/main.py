@@ -1,4 +1,5 @@
 from machine import Pin, I2C
+import select
 import sys
 import time
 from ssd1306_min import SH1106, blink_probe
@@ -17,6 +18,8 @@ i2c = I2C(0, sda=Pin(SDA), scl=Pin(SCL), freq=100000)
 display = SH1106(WIDTH, HEIGHT, i2c, ADDR, col_offset=2)
 current_emotion = "happy"
 current_text = "JKS READY"
+stdin_poll = None
+active_animation = None
 
 
 # frame: left_eye, right_eye, mouth, fallback_label, x_offset, y_offset
@@ -88,6 +91,11 @@ FACE_FRAMES = {
     ],
 }
 
+EYE_STYLES = ("dot", "blink", "happy", "wide", "side", "sleepy", "sad", "angry", "cross")
+MOUTH_STYLES = ("flat", "smile", "small", "open", "talk1", "talk2", "sad")
+MOTIONS = ("still", "blink", "bob", "shake", "talk", "bounce")
+CUSTOM_FACE_FIELDS = ("left_eye", "right_eye", "mouth", "x_offset", "y_offset", "motion")
+
 ALIASES = {
     "smile": "happy",
     "joy": "happy",
@@ -129,6 +137,25 @@ def clamp_intensity(raw):
     if value in ("soft", "normal", "high"):
         return value
     return "normal"
+
+
+def clean_choice(raw, allowed, default):
+    value = str(raw)
+    if value in allowed:
+        return value
+    return default
+
+
+def clamp_offset(raw):
+    try:
+        value = int(raw)
+    except Exception:
+        return 0
+    if value < -4:
+        return -4
+    if value > 4:
+        return 4
+    return value
 
 
 def normalize_emotion(name):
@@ -208,6 +235,57 @@ def draw_frame(frame, label):
     display.show()
 
 
+def set_active_animation(kind, data=None, delay_ms=180):
+    global active_animation
+    active_animation = {
+        "kind": kind,
+        "data": data,
+        "frame": 0,
+        "delay_ms": delay_ms,
+        "next_ms": time.ticks_ms(),
+    }
+
+
+def emotion_delay(emotion, duration_ms, intensity):
+    frames = FACE_FRAMES.get(emotion, FACE_FRAMES["neutral"])
+    delay = clamp_duration(duration_ms) // len(frames)
+    intensity = clamp_intensity(intensity)
+    if intensity == "high":
+        delay = max(70, delay // 2)
+    elif intensity == "soft":
+        delay = min(900, delay + 120)
+    return delay
+
+
+def custom_delay(intensity):
+    intensity = clamp_intensity(intensity)
+    if intensity == "high":
+        return 90
+    if intensity == "soft":
+        return 220
+    return 150
+
+
+def animate_tick(force=False):
+    global active_animation
+    if active_animation is None:
+        return
+    now = time.ticks_ms()
+    if not force and time.ticks_diff(now, active_animation.get("next_ms", 0)) < 0:
+        return
+
+    frame_index = active_animation.get("frame", 0)
+    if active_animation.get("kind") == "custom":
+        data = active_animation.get("data") or {}
+        draw_frame(custom_motion_frame(data, frame_index), current_text)
+    else:
+        frames = FACE_FRAMES.get(current_emotion, FACE_FRAMES["neutral"])
+        draw_frame(frames[frame_index % len(frames)], current_text)
+
+    active_animation["frame"] = frame_index + 1
+    active_animation["next_ms"] = time.ticks_add(now, active_animation.get("delay_ms", 180))
+
+
 def draw(emotion=None, text=None, duration_ms=900, intensity="normal"):
     global current_emotion, current_text
     if emotion is not None:
@@ -215,26 +293,74 @@ def draw(emotion=None, text=None, duration_ms=900, intensity="normal"):
     if text is not None:
         current_text = clean(text, 16)
 
-    frames = FACE_FRAMES.get(current_emotion, FACE_FRAMES["neutral"])
-    duration = clamp_duration(duration_ms)
-    delay = duration // len(frames)
-    intensity = clamp_intensity(intensity)
-    if intensity == "high":
-        delay = max(70, delay // 2)
-    elif intensity == "soft":
-        delay = min(900, delay + 120)
+    set_active_animation("emotion", None, emotion_delay(current_emotion, duration_ms, intensity))
+    animate_tick(force=True)
 
-    for frame in frames:
-        draw_frame(frame, current_text)
-        time.sleep_ms(delay)
+
+def has_custom_face_pattern(data):
+    for key in CUSTOM_FACE_FIELDS:
+        if data.get(key) is not None:
+            return True
+    return False
+
+
+def custom_motion_frame(data, frame_index):
+    left_eye = clean_choice(data.get("left_eye", ""), EYE_STYLES, "dot")
+    right_eye = clean_choice(data.get("right_eye", ""), EYE_STYLES, "dot")
+    mouth = clean_choice(data.get("mouth", ""), MOUTH_STYLES, "flat")
+    motion = clean_choice(data.get("motion", ""), MOTIONS, "bob")
+    dx = clamp_offset(data.get("x_offset", 0))
+    dy = clamp_offset(data.get("y_offset", 0))
+    move_x, move_y = motion_delta(motion, frame_index)
+
+    if motion == "blink" and frame_index % 8 == 4:
+        if left_eye not in ("cross", "angry"):
+            left_eye = "blink"
+        if right_eye not in ("cross", "angry"):
+            right_eye = "blink"
+    elif motion in ("bob", "bounce") and frame_index % 12 == 6:
+        if left_eye not in ("cross", "angry"):
+            left_eye = "blink"
+        if right_eye not in ("cross", "angry"):
+            right_eye = "blink"
+
+    if motion == "talk":
+        mouth = ("talk1", "talk2", "open", "small")[frame_index % 4]
+
+    return (left_eye, right_eye, mouth, current_text, dx + move_x, dy + move_y)
+
+
+def motion_delta(motion, frame_index):
+    if motion == "shake":
+        return ((-2, 2, -1, 1)[frame_index % 4], 0)
+    if motion == "bounce":
+        return (0, (0, -2, -1, 1, 0)[frame_index % 5])
+    if motion in ("bob", "blink", "talk"):
+        return (0, (0, -1, 0, 1)[frame_index % 4])
+    return (0, 0)
+
+
+def draw_custom_face(data, emotion=None, text=None, duration_ms=900, intensity="normal"):
+    global current_emotion, current_text
+    if emotion is not None:
+        current_emotion = normalize_emotion(emotion)
+    if text is not None:
+        current_text = clean(text, 16)
+
+    set_active_animation("custom", data, custom_delay(intensity))
+    animate_tick(force=True)
 
 
 def clear():
+    global active_animation
+    active_animation = None
     display.fill(0)
     display.show()
 
 
 def probe():
+    global active_animation
+    active_animation = None
     for _ in range(2):
         display.fill(1)
         display.show()
@@ -282,12 +408,15 @@ def handle(line):
             elif cmd == "text":
                 draw("neutral", data.get("text", ""), 500, "soft")
                 ack("ok", "text")
-            elif cmd in ("emotion", "face"):
+            elif cmd in ("emotion", "face", "pattern"):
                 name = normalize_emotion(data.get("name", data.get("emotion", "neutral")))
                 label = data.get("display_text", data.get("text", name))
                 duration_ms = clamp_duration(data.get("duration_ms", 900))
                 intensity = clamp_intensity(data.get("intensity", "normal"))
-                draw(name, label, duration_ms, intensity)
+                if cmd in ("face", "pattern") and has_custom_face_pattern(data):
+                    draw_custom_face(data, name, label, duration_ms, intensity)
+                else:
+                    draw(name, label, duration_ms, intensity)
                 ack("ok", name)
             else:
                 ack("error", "unknown")
@@ -306,9 +435,30 @@ def boot():
     ack("ok", "boot")
 
 
+def setup_input_poll():
+    global stdin_poll
+    try:
+        stdin_poll = select.poll()
+        stdin_poll.register(sys.stdin, getattr(select, "POLLIN", 1))
+    except Exception:
+        stdin_poll = None
+
+
+def input_ready():
+    if stdin_poll is None:
+        return True
+    try:
+        return bool(stdin_poll.poll(0))
+    except Exception:
+        return True
+
+
 boot()
+setup_input_poll()
 
 while True:
-    line = sys.stdin.readline()
-    handle(line)
-    time.sleep_ms(10)
+    if input_ready():
+        line = sys.stdin.readline()
+        handle(line)
+    animate_tick()
+    time.sleep_ms(20)

@@ -5,7 +5,14 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
-from .display import ALLOWED_EMOTIONS, DisplayIntent
+from .display import (
+    ALLOWED_EMOTIONS,
+    ALLOWED_EYE_STYLES,
+    ALLOWED_MOUTH_STYLES,
+    ALLOWED_MOTIONS,
+    DisplayIntent,
+    FacePattern,
+)
 
 
 class TurnState(str, Enum):
@@ -91,14 +98,19 @@ class ExpressionEngine:
             if not isinstance(item, Mapping):
                 continue
             command = self._command_from_item(item)
-            if command == "face":
-                command = "emotion"
             if command in {"probe", "diagnostic"}:
                 continue
             if command == "clear":
                 actions.append(DisplayCommand("clear"))
             elif command == "text":
                 intent = self._text_command_intent(item)
+                intent = self._fit_total_duration(intent, total_ms)
+                if intent is None:
+                    break
+                total_ms += intent.duration_ms
+                actions.append(DisplayCommand("show", intent))
+            elif command in {"face", "pattern"}:
+                intent = self._pattern_intent(item, payload)
                 intent = self._fit_total_duration(intent, total_ms)
                 if intent is None:
                     break
@@ -131,6 +143,8 @@ class ExpressionEngine:
     def _command_from_item(self, item: Mapping[str, object]) -> str:
         raw_command = item.get("cmd", item.get("type"))
         if raw_command is None:
+            if any(item.get(key) is not None for key in ("left_eye", "right_eye", "mouth")):
+                return "face"
             if item.get("emotion") is not None or item.get("name") is not None:
                 return "emotion"
             if item.get("text") is not None or item.get("display_text") is not None:
@@ -181,6 +195,41 @@ class ExpressionEngine:
             intensity=intensity,
         )
 
+    def _pattern_intent(
+        self,
+        payload: Mapping[str, object],
+        defaults: Optional[Mapping[str, object]] = None,
+    ) -> DisplayIntent:
+        merged = self._with_display_defaults(payload, defaults)
+        intent = self._intent_from_mapping(merged)
+        return DisplayIntent(
+            emotion=intent.emotion,
+            text=intent.text,
+            duration_ms=intent.duration_ms,
+            intensity=intent.intensity,
+            pattern=FacePattern(
+                left_eye=self._eye_style(merged.get("left_eye")),
+                right_eye=self._eye_style(merged.get("right_eye")),
+                mouth=self._mouth_style(merged.get("mouth")),
+                x_offset=self._offset(merged.get("x_offset")),
+                y_offset=self._offset(merged.get("y_offset")),
+                motion=self._motion(merged.get("motion")),
+            ),
+        )
+
+    def _with_display_defaults(
+        self,
+        payload: Mapping[str, object],
+        defaults: Optional[Mapping[str, object]],
+    ) -> Mapping[str, object]:
+        if defaults is None:
+            return payload
+        merged = dict(payload)
+        for key in ("emotion", "name", "display_text", "text", "duration_ms", "intensity", "motion"):
+            if merged.get(key) is None and defaults.get(key) is not None:
+                merged[key] = defaults[key]
+        return merged
+
     def _fit_total_duration(
         self,
         intent: DisplayIntent,
@@ -196,7 +245,33 @@ class ExpressionEngine:
             text=intent.text,
             duration_ms=remaining,
             intensity=intent.intensity,
+            pattern=intent.pattern,
         )
+
+    def _eye_style(self, raw: object) -> str:
+        value = str(raw)
+        if value in ALLOWED_EYE_STYLES:
+            return value
+        return "dot"
+
+    def _mouth_style(self, raw: object) -> str:
+        value = str(raw)
+        if value in ALLOWED_MOUTH_STYLES:
+            return value
+        return "flat"
+
+    def _offset(self, raw: object) -> int:
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return 0
+        return max(-4, min(value, 4))
+
+    def _motion(self, raw: object) -> str:
+        value = str(raw)
+        if value in ALLOWED_MOTIONS:
+            return value
+        return "bob"
 
     def frames_for(self, emotion: str) -> list[ExpressionFrame]:
         if emotion == "speaking":
