@@ -228,6 +228,19 @@ uv run python -m tools.oled_smoke --hold-ms 2000
 The OLED smoke covers all base emotions: `neutral`, `listening`, `thinking`,
 `speaking`, `happy`, `surprised`, `sleepy`, `sad`, `angry`, and `error`.
 
+Capture visual acceptance evidence outside the repository. First list camera
+device indexes, then aim the selected camera at the physical OLED and record
+while the OLED smoke cycles moods:
+
+```bash
+uv run python -m tools.jks_visual_evidence --list-devices
+uv run python -m tools.jks_visual_evidence --camera-device 1 --seconds 20 --hold-ms 1000
+```
+
+The helper writes to `/tmp/jks-acceptance-evidence` by default and still
+requires visual review: the OLED must actually be readable in the recorded
+camera video.
+
 ## Firmware
 
 The working firmware files are:

@@ -118,3 +118,15 @@ Visual pass criteria:
 - The display returns to a completion or agent-selected expression after playback.
 
 Save visual evidence outside the repository unless it is intentionally redacted and safe to publish.
+
+Optional capture helper:
+
+```bash
+uv run python -m tools.jks_visual_evidence --list-devices
+uv run python -m tools.jks_visual_evidence --camera-device <index> --seconds 20 --hold-ms 1000
+```
+
+The helper writes `/tmp/jks-acceptance-evidence/oled-camera.mp4` and
+`/tmp/jks-acceptance-evidence/desktop-screen.png`. Review the camera video
+before accepting it; a successful command only proves capture and OLED ACKs,
+not that the physical OLED was aimed, readable, and in frame.

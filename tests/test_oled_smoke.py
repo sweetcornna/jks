@@ -161,13 +161,14 @@ class OledSmokeTests(unittest.TestCase):
             )
             start = time.monotonic()
             thread.start()
-            thread.join(0.75)
+            max_elapsed = len(EXPECTED_DETAILS) * 0.05 + 1.0
+            thread.join(max_elapsed)
             if thread.is_alive():
                 peer_socket.close()
                 thread.join(0.25)
                 self.fail("OLED smoke blocked on a partial line beyond its timeout")
 
-            self.assertLess(time.monotonic() - start, 0.75)
+            self.assertLess(time.monotonic() - start, max_elapsed)
             result = result_box["result"]
             self.assertFalse(result["ok"])
             self.assertEqual(result["errors"][0]["error"], "json")

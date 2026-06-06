@@ -16,10 +16,14 @@ probes were run with secrets supplied through the shell environment only.
 - `uv run python -m tools.jks_app_probe --audio /tmp/jks-real-turn.mp3 --require-display-ack --display-ack-timeout 6 --play`: `ok:true`; two UI clicks; start/finish orchestrator path; playback true; no missing OLED ACKs.
 - `uv run python -m tools.jks_gui_probe --audio /tmp/jks-real-turn.mp3 --require-display-ack --display-ack-timeout 6 --play`: `ok:true`; real Tk app created; two Speak button clicks; final status Ready; playback true; no missing OLED ACKs.
 - `uv run python -m tools.oled_smoke --hold-ms 1000`: `ok:true`; ACKs received for probe, all base emotions, text, and clear.
+- Visible desktop GUI evidence was captured outside the repository under `/tmp/jks-acceptance-evidence/gui-visible-01.png`, `/tmp/jks-acceptance-evidence/gui-visible-02.png`, and `/tmp/jks-acceptance-evidence/gui-visible-03.png`; `gui-visible-probe.json` reports `ok:true`, `shown:true`, two clicks, playback true, and no missing OLED ACKs.
+- `uv run python -m tools.jks_visual_evidence --camera-device 1 --seconds 8 --hold-ms 500 --output-dir /tmp/jks-acceptance-evidence`: command returned `ok:true` and wrote `oled-camera.mp4`; visual review showed the camera was not aimed at the OLED, so this video is not acceptable physical OLED evidence.
 
 ## Remaining Manual Evidence
 
-The terminal can verify serial ACKs, playback invocation, hidden Tk GUI state,
-and real service responses. It cannot independently capture a physical photo or
-short video of the external OLED. For final human-facing acceptance, capture
-the visual evidence listed in `docs/MANUAL_ACCEPTANCE.md` outside the repository.
+The terminal can verify serial ACKs, playback invocation, visible and hidden Tk
+GUI state, and real service responses. The only remaining acceptance item is a
+physical photo or short video where the external OLED is actually in frame and
+readable across the required moods. Re-aim a camera at the OLED and rerun the
+visual capture helper in `docs/MANUAL_ACCEPTANCE.md`, then visually review the
+result before marking human-facing acceptance complete.
