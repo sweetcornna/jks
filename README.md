@@ -73,6 +73,8 @@ JKS_AGENT_MODEL="gran-agent"
 synced profile at `.local/hermes-home/.hermes/profiles/jksgrantly` and invokes
 Hermes as `hermes -p jksgrantly ...`. JKS resolves relative command/workdir
 paths from the current project directory before launching the subprocess.
+If that local Grantly provider is temporarily unavailable, JKS can fall back to
+the local Codex CLI and still require the same compact JSON reply contract.
 
 ### Hermes API Server
 

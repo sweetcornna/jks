@@ -9,6 +9,7 @@ from jks.display import (
     ALLOWED_EMOTIONS,
     DisplayController,
     DisplayIntent,
+    FacePattern,
     NullDisplayController,
     open_serial_output,
 )
@@ -58,6 +59,67 @@ class DisplayControllerTests(unittest.TestCase):
                 "intensity": "high",
             },
         )
+
+    def test_sends_custom_face_pattern_with_whitelisted_parts(self):
+        port = FakePort()
+        display = DisplayController(port)
+
+        display.show(
+            DisplayIntent(
+                emotion="happy",
+                text="FACE",
+                duration_ms=800,
+                intensity="high",
+                pattern=FacePattern(
+                    left_eye="wide",
+                    right_eye="cross",
+                    mouth="open",
+                    x_offset=2,
+                    y_offset=-1,
+                ),
+            )
+        )
+
+        payload = json.loads(port.getvalue().decode("utf-8"))
+        self.assertEqual(
+            payload,
+            {
+                "cmd": "face",
+                "name": "happy",
+                "text": "FACE",
+                "duration_ms": 800,
+                "intensity": "high",
+                "left_eye": "wide",
+                "right_eye": "cross",
+                "mouth": "open",
+                "x_offset": 2,
+                "y_offset": -1,
+                "motion": "bob",
+            },
+        )
+
+    def test_custom_face_motion_is_whitelisted_for_serial_payload(self):
+        port = FakePort()
+        display = DisplayController(port)
+
+        display.show(
+            DisplayIntent(
+                emotion="happy",
+                text="TALK",
+                pattern=FacePattern(mouth="open", motion="talk"),
+            )
+        )
+        display.show(
+            DisplayIntent(
+                emotion="happy",
+                text="BAD",
+                pattern=FacePattern(motion="laser"),
+            )
+        )
+
+        frames = [json.loads(line) for line in port.getvalue().decode("utf-8").splitlines()]
+        self.assertEqual(frames[0]["motion"], "talk")
+        self.assertEqual(frames[1]["motion"], "bob")
 
     def test_allowed_emotions_include_required_whitelist(self):
         self.assertGreaterEqual(

@@ -11,7 +11,13 @@ from typing import Callable, Optional, Sequence, TextIO
 from .agent import AgentTraceEvent, build_agent_client
 from .audio import AudioPlayer, AudioRecorder
 from .config import AppConfig, load_config
-from .display import DisplayController, DisplayIntent, NullDisplayController, open_serial_output
+from .display import (
+    DisplayController,
+    DisplayIntent,
+    FacePattern,
+    NullDisplayController,
+    open_serial_output,
+)
 from .expression import ExpressionEngine, TurnState
 from .orchestrator import ConversationOrchestrator
 from .speech import build_speech_client
@@ -69,6 +75,7 @@ STATE_LABELS = {
 
 DEFAULT_WINDOW_GEOMETRY = "560x420"
 MIN_WINDOW_SIZE = (420, 320)
+DISPLAY_ANIMATION_MS = 180
 
 
 class JksApp:
@@ -83,6 +90,10 @@ class JksApp:
         self.agent_trace = tk.StringVar(value="Agent trace will appear here.")
         self.display_preview = tk.StringVar(value="neutral READY")
         self._trace_lines: list[str] = []
+        self._display_animation_after = None
+        self._display_animation_frame = 0
+        self._display_animation_intent: Optional[DisplayIntent] = None
+        self._display_animation_label = ""
         self._expression = ExpressionEngine()
         self.orchestrator = orchestrator or build_orchestrator(
             load_config(),
@@ -194,12 +205,53 @@ class JksApp:
 
     def _render_display_preview(self, intent: object) -> None:
         if not isinstance(intent, DisplayIntent):
+            self._cancel_display_animation()
+            self._display_animation_intent = None
             self.display_preview.set("screen clear")
             _clear_display_canvas(self.display_canvas)
             return
         label = _preview_text(intent.text or intent.emotion.upper(), 16)
         self.display_preview.set(f"{intent.emotion} {label}")
-        _draw_display_canvas(self.display_canvas, intent.emotion, label)
+        self._cancel_display_animation()
+        self._display_animation_intent = intent
+        self._display_animation_label = label
+        self._display_animation_frame = 0
+        _draw_display_canvas(self.display_canvas, intent.emotion, label, intent.pattern, frame=0)
+        self._schedule_display_animation()
+
+    def _schedule_display_animation(self) -> None:
+        if self._display_animation_intent is None:
+            return
+        if not _supports_display_animation(self.root):
+            return
+        self._display_animation_after = self.root.after(
+            DISPLAY_ANIMATION_MS,
+            self._advance_display_animation,
+        )
+
+    def _advance_display_animation(self) -> None:
+        intent = self._display_animation_intent
+        if intent is None:
+            return
+        self._display_animation_frame += 1
+        _draw_display_canvas(
+            self.display_canvas,
+            intent.emotion,
+            self._display_animation_label,
+            intent.pattern,
+            frame=self._display_animation_frame,
+        )
+        self._schedule_display_animation()
+
+    def _cancel_display_animation(self) -> None:
+        if self._display_animation_after is None:
+            return
+        if hasattr(self.root, "after_cancel"):
+            try:
+                self.root.after_cancel(self._display_animation_after)
+            except Exception:
+                pass
+        self._display_animation_after = None
 
     def _append_agent_trace(self, event: AgentTraceEvent) -> None:
         source = str(getattr(event, "source", "") or "agent").strip()
@@ -253,34 +305,132 @@ def _clear_display_canvas(canvas) -> None:
     canvas.create_rectangle(0, 0, 192, 96, fill="#050505", outline="#333333")
 
 
-def _draw_display_canvas(canvas, emotion: str, label: str) -> None:
+def _supports_display_animation(root) -> bool:
+    return hasattr(root, "after") and hasattr(root, "after_cancel")
+
+
+def _draw_display_canvas(
+    canvas,
+    emotion: str,
+    label: str,
+    pattern: Optional[FacePattern] = None,
+    frame: int = 0,
+) -> None:
     _clear_display_canvas(canvas)
     face = "#d8ff74"
     accent = "#72d7ff"
     canvas.create_rectangle(8, 8, 184, 88, outline="#5dff9a")
-    if emotion in {"happy", "speaking"}:
-        canvas.create_arc(50, 34, 78, 58, start=180, extent=180, outline=face, width=2)
-        canvas.create_arc(114, 34, 142, 58, start=180, extent=180, outline=face, width=2)
-        canvas.create_arc(76, 48, 116, 78, start=200, extent=140, outline=face, width=2)
+    if pattern is not None:
+        motion_dx, motion_dy = _preview_motion_delta(pattern.motion, frame)
+        dx = pattern.x_offset * 2 + motion_dx
+        dy = pattern.y_offset * 2 + motion_dy
+        left_eye = _preview_eye_for_motion(pattern.left_eye, pattern.motion, frame)
+        right_eye = _preview_eye_for_motion(pattern.right_eye, pattern.motion, frame)
+        mouth = _preview_mouth_for_motion(pattern.mouth, pattern.motion, frame)
+        _draw_preview_eye(canvas, 54 + dx, 38 + dy, left_eye, face)
+        _draw_preview_eye(canvas, 120 + dx, 38 + dy, right_eye, face)
+        _draw_preview_mouth(canvas, mouth, face, dy)
+    elif emotion in {"happy", "speaking"}:
+        dx, dy = _preview_motion_delta("talk" if emotion == "speaking" else "bounce", frame)
+        canvas.create_arc(50 + dx, 34 + dy, 78 + dx, 58 + dy, start=180, extent=180, outline=face, width=2)
+        canvas.create_arc(114 + dx, 34 + dy, 142 + dx, 58 + dy, start=180, extent=180, outline=face, width=2)
+        _draw_preview_mouth(canvas, "talk1" if emotion == "speaking" and frame % 2 else "smile", face, dy)
     elif emotion == "surprised":
-        canvas.create_oval(52, 34, 76, 58, outline=face, width=2)
-        canvas.create_oval(116, 34, 140, 58, outline=face, width=2)
-        canvas.create_oval(86, 56, 106, 76, outline=face, width=2)
+        dx, dy = _preview_motion_delta("bob", frame)
+        canvas.create_oval(52 + dx, 34 + dy, 76 + dx, 58 + dy, outline=face, width=2)
+        canvas.create_oval(116 + dx, 34 + dy, 140 + dx, 58 + dy, outline=face, width=2)
+        canvas.create_oval(86 + dx, 56 + dy, 106 + dx, 76 + dy, outline=face, width=2)
     elif emotion == "sleepy":
-        canvas.create_line(52, 48, 76, 48, fill=face, width=2)
-        canvas.create_line(116, 48, 140, 48, fill=face, width=2)
-        canvas.create_line(82, 66, 110, 66, fill=face, width=2)
+        _dx, dy = _preview_motion_delta("bob", frame)
+        canvas.create_line(52, 48 + dy, 76, 48 + dy, fill=face, width=2)
+        canvas.create_line(116, 48 + dy, 140, 48 + dy, fill=face, width=2)
+        canvas.create_line(82, 66 + dy, 110, 66 + dy, fill=face, width=2)
     elif emotion in {"angry", "error"}:
-        canvas.create_line(50, 38, 78, 52, fill=face, width=2)
-        canvas.create_line(114, 52, 142, 38, fill=face, width=2)
-        canvas.create_line(80, 66, 112, 62, fill=face, width=2)
+        dx, dy = _preview_motion_delta("shake", frame)
+        canvas.create_line(50 + dx, 38 + dy, 78 + dx, 52 + dy, fill=face, width=2)
+        canvas.create_line(114 + dx, 52 + dy, 142 + dx, 38 + dy, fill=face, width=2)
+        canvas.create_line(80 + dx, 66 + dy, 112 + dx, 62 + dy, fill=face, width=2)
     else:
-        canvas.create_oval(54, 38, 72, 54, outline=face, width=2)
-        canvas.create_oval(120, 38, 138, 54, outline=face, width=2)
-        canvas.create_line(82, 66, 110, 66, fill=face, width=2)
+        dx, dy = _preview_motion_delta("blink", frame)
+        eye_style = "blink" if frame % 10 == 5 else "dot"
+        _draw_preview_eye(canvas, 54 + dx, 38 + dy, eye_style, face)
+        _draw_preview_eye(canvas, 120 + dx, 38 + dy, eye_style, face)
+        canvas.create_line(82 + dx, 66 + dy, 110 + dx, 66 + dy, fill=face, width=2)
     if emotion in {"thinking", "listening"}:
-        canvas.create_text(154, 28, text="...", fill=accent, font=("Menlo", 13, "bold"))
+        dots = "." * ((frame % 3) + 1)
+        canvas.create_text(154, 28, text=dots, fill=accent, font=("Menlo", 13, "bold"))
     canvas.create_text(96, 82, text=label, fill="#f6f6f6", font=("Menlo", 12, "bold"))
+
+
+def _draw_preview_eye(canvas, x: int, y: int, style: str, face: str) -> None:
+    if style == "blink":
+        canvas.create_line(x, y + 8, x + 20, y + 8, fill=face, width=2)
+    elif style == "happy":
+        canvas.create_arc(x - 2, y - 2, x + 22, y + 20, start=180, extent=180, outline=face, width=2)
+    elif style == "wide":
+        canvas.create_oval(x - 2, y - 4, x + 22, y + 20, outline=face, width=2)
+        canvas.create_oval(x + 7, y + 4, x + 13, y + 10, fill=face, outline=face)
+    elif style == "side":
+        canvas.create_oval(x - 2, y, x + 22, y + 16, outline=face, width=2)
+        canvas.create_oval(x + 3, y + 5, x + 9, y + 11, fill=face, outline=face)
+    elif style == "sleepy":
+        canvas.create_line(x, y + 6, x + 18, y + 6, fill=face, width=2)
+        canvas.create_line(x + 3, y + 9, x + 15, y + 9, fill=face, width=2)
+    elif style == "sad":
+        canvas.create_line(x, y + 13, x + 20, y + 8, fill=face, width=2)
+        canvas.create_oval(x + 7, y + 6, x + 13, y + 12, fill=face, outline=face)
+    elif style == "angry":
+        canvas.create_line(x, y + 2, x + 20, y + 8, fill=face, width=2)
+        canvas.create_oval(x + 7, y + 8, x + 13, y + 14, fill=face, outline=face)
+    elif style == "cross":
+        canvas.create_line(x, y, x + 20, y + 16, fill=face, width=2)
+        canvas.create_line(x + 20, y, x, y + 16, fill=face, width=2)
+    else:
+        canvas.create_oval(x, y, x + 18, y + 16, outline=face, width=2)
+        canvas.create_oval(x + 7, y + 6, x + 11, y + 10, fill=face, outline=face)
+
+
+def _draw_preview_mouth(canvas, style: str, face: str, dy: int = 0) -> None:
+    if style == "smile":
+        canvas.create_arc(78, 50 + dy, 114, 78 + dy, start=200, extent=140, outline=face, width=2)
+    elif style == "small":
+        canvas.create_line(88, 66 + dy, 104, 66 + dy, fill=face, width=2)
+    elif style == "open":
+        canvas.create_oval(84, 56 + dy, 108, 76 + dy, outline=face, width=2)
+        canvas.create_line(88, 66 + dy, 104, 66 + dy, fill=face, width=2)
+    elif style == "talk1":
+        canvas.create_line(82, 60 + dy, 110, 60 + dy, fill=face, width=2)
+        canvas.create_line(86, 68 + dy, 106, 68 + dy, fill=face, width=2)
+    elif style == "talk2":
+        canvas.create_rectangle(84, 58 + dy, 108, 72 + dy, outline=face, width=2)
+    elif style == "sad":
+        canvas.create_arc(78, 62 + dy, 114, 84 + dy, start=20, extent=140, outline=face, width=2)
+    else:
+        canvas.create_line(82, 66 + dy, 110, 66 + dy, fill=face, width=2)
+
+
+def _preview_motion_delta(motion: str, frame: int) -> tuple[int, int]:
+    if motion == "shake":
+        return ((-3, 3, -2, 2)[frame % 4], 0)
+    if motion == "bounce":
+        return (0, (0, -3, -1, 2, 0)[frame % 5])
+    if motion in {"bob", "blink", "talk"}:
+        return (0, (0, -2, 0, 2)[frame % 4])
+    return (0, 0)
+
+
+def _preview_eye_for_motion(style: str, motion: str, frame: int) -> str:
+    if motion == "blink" and frame % 8 == 4 and style not in {"cross", "angry"}:
+        return "blink"
+    if motion in {"bob", "bounce"} and frame % 12 == 6 and style not in {"cross", "angry"}:
+        return "blink"
+    return style
+
+
+def _preview_mouth_for_motion(style: str, motion: str, frame: int) -> str:
+    if motion == "talk":
+        return ("talk1", "talk2", "open", "small")[frame % 4]
+    return style
 
 
 def _preview_text(text: object, limit: int = 16) -> str:

@@ -53,6 +53,35 @@ class MicroPythonFirmwareTests(unittest.TestCase):
         self.assertIn("intensity", source)
         self.assertIn("display_text", source)
 
+    def test_firmware_accepts_custom_face_pattern_fields(self):
+        source = FIRMWARE.read_text()
+
+        self.assertIn("draw_custom_face", source)
+        self.assertIn('data.get("left_eye"', source)
+        self.assertIn('data.get("right_eye"', source)
+        self.assertIn('data.get("mouth"', source)
+        self.assertIn('data.get("x_offset"', source)
+        self.assertIn('data.get("y_offset"', source)
+
+    def test_firmware_custom_face_supports_continuous_motion(self):
+        source = FIRMWARE.read_text()
+        motions = _literal_assignment("MOTIONS")
+
+        self.assertGreaterEqual(set(motions), {"still", "blink", "bob", "shake", "talk", "bounce"})
+        self.assertIn('data.get("motion"', source)
+        self.assertIn("custom_motion_frame", source)
+        self.assertIn("active_animation", source)
+
+    def test_firmware_polls_serial_input_while_animating_between_commands(self):
+        source = FIRMWARE.read_text()
+
+        self.assertIn("select.poll", source)
+        self.assertIn("def input_ready", source)
+        self.assertIn("def animate_tick", source)
+        self.assertIn("if input_ready():", source)
+        self.assertIn("animate_tick()", source)
+        self.assertNotIn("while True:\n    line = sys.stdin.readline()\n    handle(line)\n    time.sleep_ms(10)", source)
+
     def test_firmware_keeps_verified_sh1106_hardware_baseline(self):
         tree = ast.parse(FIRMWARE.read_text())
         constants = _literal_assignments()

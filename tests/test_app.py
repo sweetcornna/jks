@@ -39,6 +39,20 @@ class DelayedRoot(FakeRoot):
         self.after_calls.append((delay_ms, callback))
 
 
+class AnimationRoot(FakeRoot):
+    def __init__(self):
+        super().__init__()
+        self.cancelled = []
+
+    def after(self, delay_ms, callback):
+        handle = f"after-{len(self.after_calls) + 1}"
+        self.after_calls.append((delay_ms, callback, handle))
+        return handle
+
+    def after_cancel(self, handle):
+        self.cancelled.append(handle)
+
+
 class FakeStringVar:
     def __init__(self, value=""):
         self.value = value
@@ -444,6 +458,72 @@ class AppTests(unittest.TestCase):
         canvas_ops = FakeCanvas.created[0].operations
         self.assertTrue(any(op[0] == "oval" for op in canvas_ops))
         self.assertTrue(any(op[0] == "text" and op[2].get("text") == "WOW" for op in canvas_ops))
+
+    def test_ui_oled_preview_draws_custom_face_pattern(self):
+        from jks import app
+        from jks.display import DisplayIntent, FacePattern
+        from jks.orchestrator import TurnResult
+
+        root = FakeRoot()
+        orchestrator = FakeOrchestrator(
+            result=TurnResult(user_text="hello", agent_text="reply", emotion="happy")
+        )
+        FakeCanvas.created = []
+
+        with patch.object(app.tk, "StringVar", FakeStringVar), patch.object(
+            app.ttk, "Button", FakeButton
+        ), patch.object(app.ttk, "Label", FakeLabel), patch.object(
+            app.tk, "Canvas", FakeCanvas
+        ), patch.object(app.threading, "Thread", ImmediateThread):
+            ui = app.JksApp(root, orchestrator=orchestrator)
+            ui._show_display_preview(
+                DisplayIntent(
+                    "happy",
+                    "FACE",
+                    pattern=FacePattern(
+                        left_eye="wide",
+                        right_eye="cross",
+                        mouth="open",
+                        x_offset=2,
+                        y_offset=-1,
+                    ),
+                )
+            )
+
+        canvas_ops = FakeCanvas.created[0].operations
+        self.assertIn("FACE", ui.display_preview.get())
+        self.assertTrue(any(op[0] == "oval" for op in canvas_ops))
+        self.assertGreaterEqual(sum(1 for op in canvas_ops if op[0] == "line"), 2)
+
+    def test_ui_oled_preview_continuously_animates_expression(self):
+        from jks import app
+        from jks.orchestrator import TurnResult
+
+        root = AnimationRoot()
+        orchestrator = FakeOrchestrator(
+            result=TurnResult(user_text="hello", agent_text="reply", emotion="happy")
+        )
+        FakeCanvas.created = []
+
+        with patch.object(app.tk, "StringVar", FakeStringVar), patch.object(
+            app.ttk, "Button", FakeButton
+        ), patch.object(app.ttk, "Label", FakeLabel), patch.object(
+            app.tk, "Canvas", FakeCanvas
+        ), patch.object(app.threading, "Thread", ImmediateThread):
+            app.JksApp(root, orchestrator=orchestrator)
+
+        canvas = FakeCanvas.created[0]
+        first_operations = list(canvas.operations)
+        self.assertTrue(root.after_calls)
+        delay_ms, callback, _handle = root.after_calls[-1]
+        self.assertEqual(delay_ms, app.DISPLAY_ANIMATION_MS)
+
+        callback()
+
+        second_operations = canvas.operations[len(first_operations) :]
+        self.assertTrue(second_operations)
+        self.assertNotEqual(first_operations[-6:], second_operations[-6:])
+        self.assertEqual(root.after_calls[-1][0], app.DISPLAY_ANIMATION_MS)
 
     def test_ui_turn_tracks_full_visible_status_sequence(self):
         from jks import app
