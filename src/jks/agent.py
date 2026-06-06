@@ -3,9 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import os
+from pathlib import Path
+import re
 import shlex
 import subprocess
-from typing import Any, Iterable
+import threading
+import time
+from typing import Any, Callable, Iterable
 from urllib.parse import urlsplit
 
 import requests
@@ -18,6 +22,14 @@ class AgentReply:
     display_text: Any = None
     duration_ms: Any = None
     intensity: Any = None
+    display_sequence: Any = None
+    display_commands: Any = None
+
+
+@dataclass(frozen=True)
+class AgentTraceEvent:
+    source: str
+    message: str
 
 
 class AgentProviderError(RuntimeError):
@@ -52,6 +64,8 @@ def parse_agent_reply(payload: Any) -> AgentReply:
             display_text=display_fields.get("display_text"),
             duration_ms=display_fields.get("duration_ms"),
             intensity=display_fields.get("intensity"),
+            display_sequence=display_fields.get("display_sequence"),
+            display_commands=display_fields.get("display_commands"),
         )
     return AgentReply(text=str(payload))
 
@@ -154,6 +168,8 @@ def _extract_display_fields(payload: dict[str, Any]) -> dict[str, Any]:
                 "display_text": nested.get("display_text", nested.get("text")),
                 "duration_ms": nested.get("duration_ms"),
                 "intensity": nested.get("intensity"),
+                "display_sequence": _list_or_none(nested.get("display_sequence")),
+                "display_commands": _list_or_none(nested.get("display_commands")),
             }
         )
 
@@ -163,9 +179,19 @@ def _extract_display_fields(payload: dict[str, Any]) -> dict[str, Any]:
             "display_text": payload.get("display_text", display.get("display_text")),
             "duration_ms": payload.get("duration_ms", display.get("duration_ms")),
             "intensity": payload.get("intensity", display.get("intensity")),
+            "display_sequence": _list_or_none(
+                payload.get("display_sequence", display.get("display_sequence"))
+            ),
+            "display_commands": _list_or_none(
+                payload.get("display_commands", display.get("display_commands"))
+            ),
         }
     )
     return display
+
+
+def _list_or_none(value: Any) -> list[Any] | None:
+    return value if isinstance(value, list) else None
 
 
 def _unwrap_envelope(payload: dict[str, Any]) -> dict[str, Any]:
@@ -239,16 +265,22 @@ class HttpAgentClient:
         endpoint: str,
         token: str = "",
         timeout: float = 30.0,
-        model: str = "hermes-agent",
+        model: str = "gran-agent",
     ):
         self.endpoint = endpoint
         self.token = token
         self.timeout = timeout
-        self.model = model or "hermes-agent"
+        self.model = model or "gran-agent"
 
-    def send_message(self, text: str, conversation_id: str) -> AgentReply:
+    def send_message(
+        self,
+        text: str,
+        conversation_id: str,
+        trace_callback: Callable[[AgentTraceEvent], None] | None = None,
+    ) -> AgentReply:
         if not self.endpoint:
             raise RuntimeError("JKS_AGENT_ENDPOINT is not configured")
+        _emit_trace(trace_callback, "process", "HTTP agent request started")
 
         headers = {"Content-Type": "application/json"}
         if self.token:
@@ -256,7 +288,10 @@ class HttpAgentClient:
         if _uses_openai_chat_completions(self.endpoint):
             body = {
                 "model": self.model,
-                "messages": [{"role": "user", "content": text}],
+                "messages": [
+                    {"role": "system", "content": _voice_json_contract()},
+                    {"role": "user", "content": text},
+                ],
                 "stream": False,
             }
             if conversation_id:
@@ -280,9 +315,167 @@ class HttpAgentClient:
         except ValueError:
             payload = response.text
         reply = parse_agent_reply(payload)
+        _emit_trace(trace_callback, "process", "HTTP agent response received")
+        _reject_provider_error_text(reply.text)
         if not reply.text.strip():
             raise AgentProviderError("agent response did not contain text")
         return reply
+
+    def probe_contract(self) -> AgentReply:
+        return self.send_message("JKS contract probe", "contract-probe")
+
+
+class LocalHermesAgentClient:
+    def __init__(
+        self,
+        command: str = "/usr/local/lib/hermes-agent/venv/bin/hermes",
+        workdir: str = "/usr/local/lib/hermes-agent",
+        timeout: float = 120.0,
+        model: str = "",
+    ):
+        self.command = _absolute_runtime_path(command or "/usr/local/lib/hermes-agent/venv/bin/hermes")
+        self.workdir = _absolute_runtime_path(workdir or "/usr/local/lib/hermes-agent")
+        self.timeout = timeout
+        self.model = model
+
+    def send_message(
+        self,
+        text: str,
+        conversation_id: str,
+        trace_callback: Callable[[AgentTraceEvent], None] | None = None,
+    ) -> AgentReply:
+        if not self.command:
+            raise RuntimeError("JKS_AGENT_COMMAND is not configured")
+
+        session_name = _ssh_session_name(conversation_id)
+        prompt = _voice_json_prompt(text)
+        command = self._build_command(session_name, prompt)
+        if trace_callback is None:
+            stdout = self._run_command(command)
+        else:
+            stdout = self._run_command_with_trace(command, session_name, trace_callback)
+
+        reply = parse_agent_reply(stdout.strip())
+        _reject_provider_error_text(reply.text)
+        if not reply.text.strip():
+            raise AgentProviderError("agent response did not contain text")
+        return reply
+
+    def _build_command(self, session_name: str, prompt: str) -> list[str]:
+        command = [self.command, "--continue", session_name]
+        if self.model:
+            command.extend(["--model", self.model])
+        command.extend(["-z", prompt])
+        return command
+
+    def _run_command(self, command: list[str]) -> str:
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=self.workdir,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=self.timeout,
+                env=os.environ.copy(),
+            )
+        except Exception as exc:
+            raise AgentProviderError("local hermes request failed") from exc
+        return completed.stdout
+
+    def _run_command_with_trace(
+        self,
+        command: list[str],
+        session_name: str,
+        trace_callback: Callable[[AgentTraceEvent], None],
+    ) -> str:
+        started_at = time.time()
+        stop_event = threading.Event()
+        watcher = threading.Thread(
+            target=self._watch_session_trace,
+            args=(session_name, started_at, trace_callback, stop_event),
+            daemon=True,
+        )
+        _emit_trace(trace_callback, "process", "Hermes request started")
+        watcher.start()
+        try:
+            process = subprocess.Popen(
+                command,
+                cwd=self.workdir,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=os.environ.copy(),
+            )
+            try:
+                stdout, stderr = process.communicate(timeout=self.timeout)
+            except subprocess.TimeoutExpired as exc:
+                process.kill()
+                stdout, stderr = process.communicate()
+                raise subprocess.TimeoutExpired(command, self.timeout, output=stdout, stderr=stderr) from exc
+            if process.returncode:
+                raise subprocess.CalledProcessError(
+                    process.returncode,
+                    command,
+                    output=stdout,
+                    stderr=stderr,
+                )
+        except Exception as exc:
+            raise AgentProviderError("local hermes request failed") from exc
+        finally:
+            stop_event.set()
+            watcher.join(timeout=1.0)
+
+        _emit_trace(trace_callback, "process", "Hermes final response received")
+        return stdout
+
+    def _watch_session_trace(
+        self,
+        session_name: str,
+        started_at: float,
+        trace_callback: Callable[[AgentTraceEvent], None],
+        stop_event: threading.Event,
+    ) -> None:
+        del session_name
+        session_dirs = self._candidate_session_dirs()
+        seen_by_file: dict[Path, set[int]] = {}
+        while True:
+            recent_files = _recent_session_files(session_dirs, started_at)
+            for session_file in recent_files[-1:]:
+                seen = seen_by_file.setdefault(session_file, set())
+                for event in _trace_events_from_session_file(session_file, seen):
+                    _emit_trace(trace_callback, event.source, event.message)
+            if stop_event.is_set():
+                break
+            stop_event.wait(0.25)
+
+    def _candidate_session_dirs(self) -> list[Path]:
+        candidates: list[Path] = []
+        env_home = os.environ.get("HERMES_HOME", "").strip()
+        if env_home:
+            candidates.append(Path(env_home) / "sessions")
+
+        command_path = Path(self.command).resolve()
+        if command_path.name == "jksgrantly":
+            runtime_dir = command_path.parent.parent
+            candidates.append(
+                runtime_dir
+                / "hermes-home"
+                / ".hermes"
+                / "profiles"
+                / "jksgrantly"
+                / "sessions"
+            )
+            candidates.append(runtime_dir / "hermes-home" / ".hermes" / "sessions")
+
+        candidates.append(Path.home() / ".hermes" / "sessions")
+        unique: list[Path] = []
+        for candidate in candidates:
+            if candidate in unique:
+                continue
+            if candidate.is_dir():
+                unique.append(candidate)
+        return unique
 
     def probe_contract(self) -> AgentReply:
         return self.send_message("JKS contract probe", "contract-probe")
@@ -309,15 +502,21 @@ class SshHermesAgentClient:
         self.retries = max(0, retries)
         self.model = model
 
-    def send_message(self, text: str, conversation_id: str) -> AgentReply:
+    def send_message(
+        self,
+        text: str,
+        conversation_id: str,
+        trace_callback: Callable[[AgentTraceEvent], None] | None = None,
+    ) -> AgentReply:
         if not self.host:
             raise RuntimeError("JKS_AGENT_HOST is not configured")
+        _emit_trace(trace_callback, "process", "SSH Hermes request started")
 
         target = f"{self.user}@{self.host}" if self.user else self.host
         session_name = _ssh_session_name(conversation_id)
         prompt = _voice_json_prompt(text)
         hermes_args = [self.command, "--continue", session_name]
-        if self.model and self.model != "hermes-agent":
+        if self.model:
             hermes_args.extend(["--model", self.model])
         hermes_args.extend(["-z", prompt])
         remote_command = f"cd {shlex.quote(self.workdir)} && {shlex.join(hermes_args)}"
@@ -327,6 +526,12 @@ class SshHermesAgentClient:
             "StrictHostKeyChecking=accept-new",
             "-o",
             "ConnectTimeout=10",
+            "-o",
+            "ControlMaster=auto",
+            "-o",
+            "ControlPersist=60",
+            "-o",
+            "ControlPath=~/.ssh/jks-%r@%h:%p",
             target,
             remote_command,
         ]
@@ -351,12 +556,15 @@ class SshHermesAgentClient:
                 break
             except subprocess.CalledProcessError as exc:
                 if exc.returncode == 255 and attempt < self.retries:
+                    _emit_trace(trace_callback, "process", "SSH retrying after transient failure")
                     continue
                 raise AgentProviderError("hermes ssh request failed") from exc
             except Exception as exc:
                 raise AgentProviderError("hermes ssh request failed") from exc
 
         reply = parse_agent_reply(completed.stdout.strip())
+        _emit_trace(trace_callback, "process", "SSH Hermes response received")
+        _reject_provider_error_text(reply.text)
         if not reply.text.strip():
             raise AgentProviderError("agent response did not contain text")
         return reply
@@ -374,13 +582,22 @@ def _uses_openai_chat_completions(endpoint: str) -> bool:
 
 
 def build_agent_client(config, timeout: float = 120.0):
+    agent_mode = str(getattr(config, "agent_mode", "")).strip().lower()
+    if agent_mode == "local":
+        return LocalHermesAgentClient(
+            command=getattr(config, "agent_command", ""),
+            workdir=getattr(config, "agent_workdir", ""),
+            timeout=timeout,
+            model=_command_model_override(config),
+        )
+
     endpoint = getattr(config, "agent_endpoint", "")
     if endpoint and not _is_placeholder(endpoint):
         return HttpAgentClient(
             endpoint,
             getattr(config, "agent_token", ""),
             timeout=timeout,
-            model=getattr(config, "agent_model", "hermes-agent"),
+            model=getattr(config, "agent_model", "gran-agent"),
         )
     host = getattr(config, "agent_host", "")
     if host and not _is_placeholder(host):
@@ -391,18 +608,43 @@ def build_agent_client(config, timeout: float = 120.0):
             command=getattr(config, "agent_command", ""),
             workdir=getattr(config, "agent_workdir", ""),
             timeout=timeout,
-            model=getattr(config, "agent_model", ""),
+            model=_command_model_override(config),
         )
     return HttpAgentClient(
         endpoint,
         getattr(config, "agent_token", ""),
         timeout=timeout,
-        model=getattr(config, "agent_model", "hermes-agent"),
+        model=getattr(config, "agent_model", "gran-agent"),
     )
 
 
 def _is_placeholder(value: str) -> bool:
     return value.strip().lower().startswith("replace-with-")
+
+
+def _command_model_override(config) -> str:
+    command = str(getattr(config, "agent_command", ""))
+    if os.path.basename(command).lower() == "jksgrantly":
+        return ""
+    return getattr(config, "agent_model", "")
+
+
+def _absolute_runtime_path(value: str) -> str:
+    if os.path.isabs(value):
+        return value
+    return os.path.abspath(value)
+
+
+def _ssh_model_override(config) -> str:
+    return _command_model_override(config)
+
+
+def _reject_provider_error_text(text: str) -> None:
+    normalized = text.strip().lower()
+    if normalized.startswith("api call failed after") or normalized.startswith("api call failed:"):
+        raise AgentProviderError("agent provider failure")
+    if normalized.startswith("http 503:") or normalized.startswith("service temporarily unavailable"):
+        raise AgentProviderError("agent provider failure")
 
 
 def _ssh_session_name(conversation_id: str) -> str:
@@ -414,10 +656,134 @@ def _ssh_session_name(conversation_id: str) -> str:
 
 
 def _voice_json_prompt(text: str) -> str:
+    return f"{_voice_json_contract()} User said: {text}"
+
+
+def _voice_json_contract() -> str:
     return (
         "JKS voice call turn. Return only compact JSON with keys text, emotion, "
-        "display_text, duration_ms, intensity. emotion must be one of neutral, "
-        "happy, thinking, speaking, listening, surprised, sleepy, sad, angry, error. "
-        "display_text must be a short ASCII OLED label. Do not include markdown. "
-        f"User said: {text}"
+        "display_text, duration_ms, intensity, display_sequence, display_commands. "
+        "emotion must be one of neutral, happy, thinking, speaking, listening, "
+        "surprised, sleepy, sad, angry, error. display_text must be a short ASCII "
+        "OLED label. Optional display_sequence may contain up to 4 objects with "
+        "emotion, display_text, duration_ms, intensity for OLED screen steps. "
+        "Optional display_commands may contain up to 4 whitelisted commands: "
+        "emotion, text, or clear. Do not include markdown."
     )
+
+
+def _emit_trace(
+    trace_callback: Callable[[AgentTraceEvent], None] | None,
+    source: str,
+    message: str,
+) -> None:
+    if trace_callback is None:
+        return
+    try:
+        trace_callback(AgentTraceEvent(source=source, message=message))
+    except Exception:
+        return
+
+
+def _recent_session_files(session_dirs: list[Path], started_at: float) -> list[Path]:
+    files: list[Path] = []
+    for session_dir in session_dirs:
+        try:
+            for session_file in session_dir.glob("session_*.json"):
+                if session_file.stat().st_mtime >= started_at:
+                    files.append(session_file)
+        except OSError:
+            continue
+    return sorted(files, key=lambda path: path.stat().st_mtime)
+
+
+def _trace_events_from_session_file(
+    session_file: Path,
+    seen_indices: set[int],
+) -> list[AgentTraceEvent]:
+    try:
+        payload = json.loads(session_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    messages = payload.get("messages") if isinstance(payload, dict) else None
+    if not isinstance(messages, list):
+        return []
+    return list(_trace_events_from_messages(messages, seen_indices))
+
+
+def _trace_events_from_messages(
+    messages: list[Any],
+    seen_indices: set[int],
+) -> Iterable[AgentTraceEvent]:
+    for index, message in enumerate(messages):
+        if index in seen_indices:
+            continue
+        seen_indices.add(index)
+        if not isinstance(message, dict):
+            continue
+        role = message.get("role")
+        if role == "user":
+            yield AgentTraceEvent(source="user", message="prompt accepted")
+            continue
+        if role == "assistant":
+            tool_calls = message.get("tool_calls")
+            if isinstance(tool_calls, list) and tool_calls:
+                for tool_call in tool_calls:
+                    name = _tool_call_name(tool_call)
+                    yield AgentTraceEvent(source="assistant", message=f"tool call: {name}")
+                continue
+            if str(message.get("content") or "").strip():
+                yield AgentTraceEvent(source="assistant", message="final response received")
+            continue
+        if role == "tool":
+            yield AgentTraceEvent(
+                source="tool",
+                message=_summarize_tool_result(message),
+            )
+
+
+def _tool_call_name(tool_call: Any) -> str:
+    if not isinstance(tool_call, dict):
+        return "unknown"
+    function = tool_call.get("function")
+    if isinstance(function, dict) and function.get("name"):
+        return _sanitize_trace_text(str(function["name"]), max_chars=80)
+    return _sanitize_trace_text(str(tool_call.get("name") or tool_call.get("type") or "unknown"), max_chars=80)
+
+
+def _summarize_tool_result(message: dict[str, Any]) -> str:
+    name = _sanitize_trace_text(str(message.get("name") or "tool"), max_chars=80)
+    content = message.get("content")
+    exit_code = None
+    output = content
+    if isinstance(content, str):
+        try:
+            parsed = json.loads(content)
+        except ValueError:
+            parsed = None
+        if isinstance(parsed, dict):
+            exit_code = parsed.get("exit_code")
+            output = parsed.get("output") or parsed.get("error") or ""
+    detail = _sanitize_trace_text(str(output or ""), max_chars=180)
+    if exit_code is not None:
+        return f"{name} exit_code={exit_code} output={detail}"
+    if detail:
+        return f"{name} output={detail}"
+    return f"{name} completed"
+
+
+_SECRET_PATTERNS = [
+    re.compile(r"sk-[A-Za-z0-9_-]{12,}"),
+    re.compile(r"(?i)(api[_-]?key|authorization|bearer|token)\\s*[:=]\\s*\\S+"),
+]
+
+
+def _sanitize_trace_text(value: str, max_chars: int = 180) -> str:
+    cleaned = value.replace("\r", " ").replace("\n", " ").strip()
+    cleaned = "".join(char if char.isprintable() else " " for char in cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    for pattern in _SECRET_PATTERNS:
+        cleaned = pattern.sub("[redacted]", cleaned)
+    if len(cleaned) > max_chars:
+        return cleaned[: max_chars - 1].rstrip() + "..."
+    return cleaned

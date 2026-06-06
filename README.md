@@ -33,11 +33,15 @@ Fill `.env` locally. Do not commit secrets.
 The app and CLI tools load `.env` from the current working directory by default;
 shell environment variables override file values. Placeholder values such as
 `replace-with-*` intentionally fail readiness checks.
+Fish streaming MP3 playback uses `mpg123 -q -`; install it locally if `--play`
+or the desktop app should play Fish TTS as bytes arrive.
 
-Required real-service values for the Hermes + Fish Audio path:
+Required real-service values for the local Hermes/Grantly + Fish Audio path:
 
 ```text
-JKS_AGENT_ENDPOINT
+JKS_AGENT_MODE
+JKS_AGENT_COMMAND
+JKS_AGENT_WORKDIR
 JKS_STT_PROVIDER
 JKS_TTS_PROVIDER
 JKS_FISH_API_KEY
@@ -46,19 +50,39 @@ JKS_OLED_BAUD
 ```
 
 `JKS_AGENT_TOKEN` is optional when the endpoint does not require bearer auth.
-`JKS_AGENT_MODEL` defaults to `hermes-agent`, `JKS_FISH_TTS_MODEL` defaults to
-`s2-pro`, and `JKS_TTS_VOICE` defaults to `default`. Set `JKS_TTS_VOICE` only
-when using a specific Fish voice/reference id.
+`JKS_AGENT_MODEL` defaults to `gran-agent`, `JKS_FISH_TTS_MODEL` defaults to
+`s2-pro`, `JKS_FISH_TTS_LATENCY` defaults to `low`, and `JKS_TTS_VOICE`
+defaults to `default`. Set `JKS_TTS_VOICE` only when using a specific Fish
+voice/reference id.
+
+### Local Hermes / Grantly
+
+The primary Grantly path runs Hermes locally from the synced runtime under
+`.local/`:
+
+```dotenv
+JKS_AGENT_MODE="local"
+JKS_AGENT_HOST=""
+JKS_AGENT_AUTH_METHOD=""
+JKS_AGENT_COMMAND=".local/bin/jksgrantly"
+JKS_AGENT_WORKDIR=".local/hermes-agent"
+JKS_AGENT_MODEL="gran-agent"
+```
+
+`JKS_AGENT_ENDPOINT` is not required in local mode. The local wrapper uses the
+synced profile at `.local/hermes-home/.hermes/profiles/jksgrantly` and invokes
+Hermes as `hermes -p jksgrantly ...`. JKS resolves relative command/workdir
+paths from the current project directory before launching the subprocess.
 
 ### Hermes API Server
 
-For the local Hermes Agent API server, use its OpenAI-compatible Chat
+If you intentionally run a local Hermes Agent API server, use its OpenAI-compatible Chat
 Completions endpoint:
 
 ```dotenv
 JKS_AGENT_ENDPOINT="http://127.0.0.1:8642/v1/chat/completions"
 JKS_AGENT_TOKEN="replace-with-hermes-api-server-key"
-JKS_AGENT_MODEL="hermes-agent"
+JKS_AGENT_MODEL="gran-agent"
 ```
 
 `JKS_AGENT_TOKEN` must match the Hermes `API_SERVER_KEY` value. JKS sends
@@ -76,10 +100,10 @@ JSON object as message content:
 JKS treats `text` as the spoken reply and clamps the display fields through the
 local expression safety layer.
 
-### Hermes SSH / CLI
+### Hermes SSH / CLI Fallback
 
-If the VPS has Hermes running but no OpenAI-compatible HTTP API port, JKS can
-call the remote Hermes CLI over SSH:
+If a remote machine has Hermes running but no OpenAI-compatible HTTP API port,
+JKS can still call the remote Hermes CLI over SSH:
 
 ```dotenv
 JKS_AGENT_HOST="replace-with-agent-host"
@@ -105,6 +129,7 @@ JKS_STT_PROVIDER="fish"
 JKS_TTS_PROVIDER="fish"
 JKS_FISH_API_KEY="replace-with-fish-api-key"
 JKS_FISH_TTS_MODEL="s2-pro"
+JKS_FISH_TTS_LATENCY="low"
 JKS_TTS_VOICE="default"
 ```
 
@@ -113,8 +138,9 @@ existing Fish config already uses those names. `JKS_TTS_VOICE` may be a Fish
 Audio `reference_id` / voice model id. When it is `default`, JKS omits
 `reference_id`. Fish ASR uses `POST
 https://api.fish.audio/v1/asr` with bearer auth and an `audio` form field. Fish
-TTS uses `POST https://api.fish.audio/v1/tts`, `model:s2-pro`, and writes mp3
-audio for playback.
+TTS uses `POST https://api.fish.audio/v1/tts`, `model:s2-pro`,
+`latency:low`, and `stream=True` response reads so mp3 bytes are written as
+Fish emits them for playback.
 
 For non-Fish HTTP speech adapters, configure `JKS_STT_ENDPOINT` and
 `JKS_TTS_ENDPOINT`. `JKS_STT_TOKEN` and `JKS_TTS_TOKEN` are optional bearer

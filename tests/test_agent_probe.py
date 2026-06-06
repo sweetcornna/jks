@@ -195,6 +195,39 @@ class AgentProbeTests(unittest.TestCase):
         self.assertNotIn("ssh-secret", " ".join(command))
         self.assertEqual(run.call_args.kwargs["timeout"], 60.0)
 
+    def test_agent_probe_supports_local_hermes_without_remote_or_http_endpoint(self):
+        stdout = io.StringIO()
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=json.dumps({"text": "local ok", "emotion": "happy", "display_text": "OK"}),
+            stderr="",
+        )
+        env = {
+            "JKS_AGENT_MODE": "local",
+            "JKS_AGENT_ENDPOINT": "replace-with-agent-endpoint",
+            "JKS_AGENT_TOKEN": "replace-with-agent-token",
+            "JKS_AGENT_HOST": "",
+            "JKS_AGENT_COMMAND": "/tmp/jksgrantly",
+            "JKS_AGENT_WORKDIR": "/tmp/hermes-agent",
+        }
+
+        with clean_cwd(), patch.dict(os.environ, env, clear=True):
+            with patch("jks.agent.subprocess.run", return_value=completed) as run:
+                exit_code = main([], stdout=stdout)
+
+        text = stdout.getvalue()
+        payload = json.loads(text)
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["agent"]["mode"], "local")
+        self.assertFalse(payload["agent"]["host_present"])
+        self.assertEqual(payload["checks"]["agent"]["mode"], "local")
+        self.assertEqual(payload["checks"]["agent"]["emotion"], "happy")
+        self.assertNotIn("/tmp/jksgrantly", text)
+        self.assertEqual(run.call_args.args[0][0], "/tmp/jksgrantly")
+        self.assertEqual(run.call_args.kwargs["cwd"], "/tmp/hermes-agent")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,21 +1,35 @@
 # JKS Manual Acceptance Checklist
 
-Use this checklist only after `.env` contains a real local Hermes / Gran Agent
-endpoint plus either Fish Audio speech credentials or custom STT/TTS endpoints.
+Use this checklist only after `.env` contains a real local Hermes / Grantly
+runtime plus either Fish Audio speech credentials or custom STT/TTS endpoints.
 
-For Hermes API Server, set:
+For local Hermes / Grantly, set:
+
+```dotenv
+JKS_AGENT_MODE="local"
+JKS_AGENT_HOST=""
+JKS_AGENT_AUTH_METHOD=""
+JKS_AGENT_COMMAND=".local/bin/jksgrantly"
+JKS_AGENT_WORKDIR=".local/hermes-agent"
+JKS_AGENT_MODEL="gran-agent"
+```
+
+The synced local profile should exist at
+`.local/hermes-home/.hermes/profiles/jksgrantly`.
+
+For an optional local Hermes API Server, set:
 
 ```dotenv
 JKS_AGENT_ENDPOINT="http://127.0.0.1:8642/v1/chat/completions"
 JKS_AGENT_TOKEN="replace-with-local-api-server-key"
-JKS_AGENT_MODEL="hermes-agent"
+JKS_AGENT_MODEL="gran-agent"
 ```
 
 The token must match Hermes `API_SERVER_KEY`.
 If the Hermes profile exposes a different model name, set `JKS_AGENT_MODEL` to
 that value.
 
-If the VPS only exposes the Hermes CLI over SSH, set:
+If a remote fallback only exposes the Hermes CLI over SSH, set:
 
 ```dotenv
 JKS_AGENT_HOST="replace-with-agent-host"
@@ -33,6 +47,7 @@ JKS_STT_PROVIDER="fish"
 JKS_TTS_PROVIDER="fish"
 JKS_FISH_API_KEY="replace-with-fish-api-key"
 JKS_FISH_TTS_MODEL="s2-pro"
+JKS_FISH_TTS_LATENCY="low"
 JKS_TTS_VOICE="default"
 ```
 

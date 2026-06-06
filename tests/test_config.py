@@ -14,6 +14,7 @@ class ConfigTests(unittest.TestCase):
 
         self.assertIsInstance(config, AppConfig)
         self.assertEqual(getattr(config, "agent_host", None), "")
+        self.assertEqual(getattr(config, "agent_mode", ""), "")
         self.assertEqual(getattr(config, "agent_user", None), "")
         self.assertEqual(getattr(config, "agent_auth_method", None), "")
         self.assertEqual(config.agent_ssh_password, "")
@@ -21,7 +22,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.agent_workdir, "/usr/local/lib/hermes-agent")
         self.assertEqual(config.agent_endpoint, "")
         self.assertEqual(config.agent_token, "")
-        self.assertEqual(config.agent_model, "hermes-agent")
+        self.assertEqual(config.agent_model, "gran-agent")
         self.assertEqual(getattr(config, "stt_provider", None), "")
         self.assertEqual(config.stt_endpoint, "")
         self.assertEqual(config.stt_token, "")
@@ -30,6 +31,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.tts_token, "")
         self.assertEqual(config.fish_api_key, "")
         self.assertEqual(config.fish_tts_model, "s2-pro")
+        self.assertEqual(config.fish_tts_latency, "low")
         self.assertEqual(config.tts_voice, "default")
         self.assertEqual(config.oled_port, "/dev/cu.usbmodem5B900048301")
         self.assertEqual(config.oled_baud, 115200)
@@ -37,6 +39,7 @@ class ConfigTests(unittest.TestCase):
     def test_loads_remote_speech_and_oled_settings(self):
         env = {
             "JKS_AGENT_HOST": "gran.example.com",
+            "JKS_AGENT_MODE": "local",
             "JKS_AGENT_USER": "jks",
             "JKS_AGENT_AUTH_METHOD": "ssh-password",
             "JKS_AGENT_SSH_PASSWORD": "ssh-secret",
@@ -53,6 +56,7 @@ class ConfigTests(unittest.TestCase):
             "JKS_TTS_TOKEN": "tts-secret",
             "JKS_FISH_API_KEY": "fish-secret",
             "JKS_FISH_TTS_MODEL": "s1",
+            "JKS_FISH_TTS_LATENCY": "balanced",
             "JKS_TTS_VOICE": "warm",
             "JKS_OLED_PORT": "/dev/cu.test",
             "JKS_OLED_BAUD": "57600",
@@ -61,6 +65,7 @@ class ConfigTests(unittest.TestCase):
             config = load_config(env_file=None)
 
         self.assertEqual(getattr(config, "agent_host", None), "gran.example.com")
+        self.assertEqual(config.agent_mode, "local")
         self.assertEqual(getattr(config, "agent_user", None), "jks")
         self.assertEqual(getattr(config, "agent_auth_method", None), "ssh-password")
         self.assertEqual(config.agent_ssh_password, "ssh-secret")
@@ -77,6 +82,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.tts_token, "tts-secret")
         self.assertEqual(config.fish_api_key, "fish-secret")
         self.assertEqual(config.fish_tts_model, "s1")
+        self.assertEqual(config.fish_tts_latency, "balanced")
         self.assertEqual(config.tts_voice, "warm")
         self.assertEqual(config.oled_port, "/dev/cu.test")
         self.assertEqual(config.oled_baud, 57600)

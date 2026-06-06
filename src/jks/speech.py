@@ -96,12 +96,14 @@ class FishAudioSpeechClient:
         stt_endpoint: str = FISH_ASR_ENDPOINT,
         tts_endpoint: str = FISH_TTS_ENDPOINT,
         tts_model: str = "s2-pro",
+        tts_latency: str = "low",
     ):
         self.api_key = api_key
         self.output_dir = Path(output_dir)
         self.stt_endpoint = stt_endpoint or FISH_ASR_ENDPOINT
         self.tts_endpoint = tts_endpoint or FISH_TTS_ENDPOINT
         self.tts_model = tts_model or "s2-pro"
+        self.tts_latency = tts_latency or "low"
 
     def transcribe(self, audio_path: Path) -> str:
         if not self.api_key:
@@ -132,7 +134,43 @@ class FishAudioSpeechClient:
         if not self.api_key:
             raise RuntimeError("JKS_FISH_API_KEY is not configured")
 
-        body = {"text": text, "format": "mp3"}
+        response = self._post_tts_stream(text, voice)
+
+        try:
+            chunks = _response_audio_chunks(response)
+            return _write_streaming_audio_output(self.output_dir, chunks, ".mp3")
+        finally:
+            close = getattr(response, "close", None)
+            if close is not None:
+                close()
+
+    def synthesize_and_play(self, text: str, voice: str, player) -> None:
+        play_stream = getattr(player, "play_stream", None)
+        if not callable(play_stream):
+            audio_reply = self.synthesize(text, voice)
+            player.play(audio_reply)
+            return None
+
+        response = self._post_tts_stream(text, voice)
+        try:
+            play_stream(_response_audio_chunks(response), suffix=".mp3")
+        finally:
+            close = getattr(response, "close", None)
+            if close is not None:
+                close()
+        return None
+
+    def _post_tts_stream(self, text: str, voice: str):
+        if not self.api_key:
+            raise RuntimeError("JKS_FISH_API_KEY is not configured")
+
+        body = {
+            "text": text,
+            "format": "mp3",
+            "latency": self.tts_latency,
+            "chunk_length": 100,
+            "min_chunk_length": 0,
+        }
         if voice and voice != "default":
             body["reference_id"] = voice
 
@@ -146,12 +184,12 @@ class FishAudioSpeechClient:
                     "model": self.tts_model,
                 },
                 timeout=60,
+                stream=True,
             )
             response.raise_for_status()
+            return response
         except Exception as exc:
             raise SpeechProviderError("fish text-to-speech request failed") from exc
-
-        return _write_audio_output(self.output_dir, response.content, ".mp3")
 
 
 def build_speech_client(config, output_dir: Path):
@@ -164,6 +202,7 @@ def build_speech_client(config, output_dir: Path):
             stt_endpoint=config.stt_endpoint or FISH_ASR_ENDPOINT,
             tts_endpoint=config.tts_endpoint or FISH_TTS_ENDPOINT,
             tts_model=config.fish_tts_model,
+            tts_latency=getattr(config, "fish_tts_latency", "low"),
         )
     if config.stt_endpoint and config.tts_endpoint:
         return HttpSpeechClient(
@@ -186,6 +225,32 @@ def _write_audio_output(output_dir: Path, content: bytes, suffix: str) -> Path:
         output_dir.mkdir(parents=True, exist_ok=True)
         output = output_dir / f"tts-output-{uuid4().hex}{suffix}"
         output.write_bytes(content)
+        return output
+    except Exception as exc:
+        raise SpeechProviderError("text-to-speech output write failed") from exc
+
+
+def _response_audio_chunks(response) -> object:
+    iter_content = getattr(response, "iter_content", None)
+    if iter_content is None:
+        return (getattr(response, "content", b""),)
+    return iter_content(chunk_size=8192)
+
+
+def _write_streaming_audio_output(output_dir: Path, chunks, suffix: str) -> Path:
+    try:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output = output_dir / f"tts-output-{uuid4().hex}{suffix}"
+        bytes_written = 0
+        with output.open("wb") as audio:
+            for chunk in chunks:
+                if not chunk:
+                    continue
+                audio.write(chunk)
+                bytes_written += len(chunk)
+        if bytes_written <= 0:
+            raise ValueError("empty audio response")
         return output
     except Exception as exc:
         raise SpeechProviderError("text-to-speech output write failed") from exc

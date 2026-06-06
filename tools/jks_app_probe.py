@@ -41,18 +41,32 @@ class FileRecorder:
 class NoOpPlayer(AudioPlayer):
     def __init__(self):
         self.played = []
+        self.streamed_chunks = []
 
     def play(self, audio_path: Path) -> None:
         self.played.append(Path(audio_path))
+
+    def play_stream(self, chunks, suffix=".mp3") -> None:
+        for chunk in chunks:
+            if chunk:
+                self.streamed_chunks.append(bytes(chunk))
 
 
 class FakeRoot:
     def __init__(self):
         self.after_calls = []
         self.title_text = ""
+        self.geometry_value = None
+        self.minsize_value = None
 
     def title(self, text):
         self.title_text = text
+
+    def geometry(self, value):
+        self.geometry_value = value
+
+    def minsize(self, width, height):
+        self.minsize_value = (width, height)
 
     def after(self, delay_ms, callback):
         self.after_calls.append(delay_ms)
@@ -416,9 +430,9 @@ def run_app_probe(argv: Sequence[str]) -> dict[str, object]:
                     {
                         "text": result.agent_text,
                         "emotion": result.emotion,
-                        "display_text": None,
-                        "duration_ms": None,
-                        "intensity": None,
+                        "display_text": getattr(result, "display_text", None),
+                        "duration_ms": getattr(result, "display_duration_ms", None),
+                        "intensity": getattr(result, "display_intensity", None),
                     },
                 )(),
                 mode=str(preflight.get("agent", {}).get("mode", "http")),

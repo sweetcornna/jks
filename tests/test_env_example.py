@@ -3,6 +3,7 @@ import unittest
 
 
 REQUIRED_KEYS = (
+    "JKS_AGENT_MODE",
     "JKS_AGENT_HOST",
     "JKS_AGENT_USER",
     "JKS_AGENT_AUTH_METHOD",
@@ -21,6 +22,7 @@ REQUIRED_KEYS = (
     "JKS_TTS_VOICE",
     "JKS_FISH_API_KEY",
     "JKS_FISH_TTS_MODEL",
+    "JKS_FISH_TTS_LATENCY",
     "JKS_OLED_PORT",
     "JKS_OLED_BAUD",
 )

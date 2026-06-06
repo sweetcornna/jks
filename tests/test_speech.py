@@ -174,34 +174,55 @@ class SpeechTests(unittest.TestCase):
 
         self.assertEqual(result, "fish transcript")
 
-    def test_fish_audio_tts_posts_s2_payload_and_writes_mp3(self):
+    def test_fish_audio_tts_posts_low_latency_streaming_payload_and_writes_mp3(self):
         class FakeResponse:
-            content = b"mp3-bytes"
+            closed = False
 
             def raise_for_status(self):
                 pass
 
+            def iter_content(self, chunk_size):
+                self.chunk_size = chunk_size
+                yield b"mp3-"
+                yield b"bytes"
+                yield b""
+
+            def close(self):
+                self.closed = True
+
+        response = FakeResponse()
         with tempfile.TemporaryDirectory() as temp_dir:
-            with patch("jks.speech.requests.post", return_value=FakeResponse()) as post:
+            with patch("jks.speech.requests.post", return_value=response) as post:
                 client = FishAudioSpeechClient(
                     api_key="fish-secret",
                     output_dir=Path(temp_dir),
                     tts_model="s2-pro",
+                    tts_latency="low",
                 )
                 output = client.synthesize("hello", "fish-voice-id")
                 output_bytes = output.read_bytes()
 
         self.assertEqual(output.suffix, ".mp3")
         self.assertEqual(output_bytes, b"mp3-bytes")
+        self.assertEqual(response.chunk_size, 8192)
+        self.assertTrue(response.closed)
         post.assert_called_once_with(
             "https://api.fish.audio/v1/tts",
-            json={"text": "hello", "format": "mp3", "reference_id": "fish-voice-id"},
+            json={
+                "text": "hello",
+                "format": "mp3",
+                "latency": "low",
+                "chunk_length": 100,
+                "min_chunk_length": 0,
+                "reference_id": "fish-voice-id",
+            },
             headers={
                 "Authorization": "Bearer fish-secret",
                 "Content-Type": "application/json",
                 "model": "s2-pro",
             },
             timeout=60,
+            stream=True,
         )
 
     def test_fish_audio_tts_omits_default_voice_reference(self):
@@ -218,8 +239,54 @@ class SpeechTests(unittest.TestCase):
 
         self.assertEqual(
             post.call_args.kwargs["json"],
-            {"text": "hello", "format": "mp3"},
+            {
+                "text": "hello",
+                "format": "mp3",
+                "latency": "low",
+                "chunk_length": 100,
+                "min_chunk_length": 0,
+            },
         )
+
+    def test_fish_audio_tts_streams_chunks_directly_to_player(self):
+        class FakeResponse:
+            closed = False
+
+            def raise_for_status(self):
+                pass
+
+            def iter_content(self, chunk_size):
+                self.chunk_size = chunk_size
+                yield b"mp3-"
+                yield b"bytes"
+
+            def close(self):
+                self.closed = True
+
+        class FakePlayer:
+            def __init__(self):
+                self.streams = []
+
+            def play_stream(self, chunks, suffix):
+                self.streams.append((list(chunks), suffix))
+
+        response = FakeResponse()
+        player = FakePlayer()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch("jks.speech.requests.post", return_value=response) as post:
+                client = FishAudioSpeechClient(
+                    api_key="fish-secret",
+                    output_dir=Path(temp_dir),
+                    tts_model="s2-pro",
+                    tts_latency="low",
+                )
+                result = client.synthesize_and_play("hello", "fish-voice-id", player)
+
+        self.assertIsNone(result)
+        self.assertEqual(player.streams, [([b"mp3-", b"bytes"], ".mp3")])
+        self.assertEqual(response.chunk_size, 8192)
+        self.assertTrue(response.closed)
+        self.assertEqual(post.call_args.kwargs["stream"], True)
 
     def test_stt_provider_failures_are_wrapped(self):
         with tempfile.TemporaryDirectory() as temp_dir:

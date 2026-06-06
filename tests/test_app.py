@@ -13,10 +13,18 @@ class FakeRoot:
     def __init__(self):
         self.after_calls = []
         self.title_text = ""
+        self.geometry_value = None
+        self.minsize_value = None
         self.mainloop_called = False
 
     def title(self, text):
         self.title_text = text
+
+    def geometry(self, value):
+        self.geometry_value = value
+
+    def minsize(self, width, height):
+        self.minsize_value = (width, height)
 
     def after(self, delay_ms, callback):
         self.after_calls.append(delay_ms)
@@ -68,6 +76,39 @@ class FakeLabel:
 
     def pack(self, **kwargs):
         self.pack_kwargs = kwargs
+
+
+class FakeCanvas:
+    created = []
+
+    def __init__(self, root, **kwargs):
+        self.root = root
+        self.kwargs = kwargs
+        self.operations = []
+        self.packed = False
+        FakeCanvas.created.append(self)
+
+    def pack(self, **kwargs):
+        self.packed = True
+        self.pack_kwargs = kwargs
+
+    def delete(self, *args):
+        self.operations.append(("delete", args))
+
+    def create_rectangle(self, *args, **kwargs):
+        self.operations.append(("rectangle", args, kwargs))
+
+    def create_oval(self, *args, **kwargs):
+        self.operations.append(("oval", args, kwargs))
+
+    def create_arc(self, *args, **kwargs):
+        self.operations.append(("arc", args, kwargs))
+
+    def create_line(self, *args, **kwargs):
+        self.operations.append(("line", args, kwargs))
+
+    def create_text(self, *args, **kwargs):
+        self.operations.append(("text", args, kwargs))
 
 
 class ImmediateThread:
@@ -142,7 +183,7 @@ def sample_config(**overrides):
         "agent_workdir": "/usr/local/lib/hermes-agent",
         "agent_endpoint": "",
         "agent_token": "",
-        "agent_model": "hermes-agent",
+        "agent_model": "gran-agent",
         "stt_provider": "",
         "stt_endpoint": "",
         "stt_token": "",
@@ -152,6 +193,7 @@ def sample_config(**overrides):
         "tts_voice": "warm",
         "fish_api_key": "",
         "fish_tts_model": "s2-pro",
+        "fish_tts_latency": "low",
         "oled_port": "/dev/cu.missing",
         "oled_baud": 115200,
     }
@@ -239,6 +281,25 @@ class AppTests(unittest.TestCase):
 
         self.assertIsInstance(orchestrator.speech, FishAudioSpeechClient)
 
+    def test_ui_sets_visible_default_window_size(self):
+        from jks import app
+        from jks.orchestrator import TurnResult
+
+        root = FakeRoot()
+        orchestrator = FakeOrchestrator(
+            result=TurnResult(user_text="hello", agent_text="reply", emotion="happy")
+        )
+
+        with patch.object(app.tk, "StringVar", FakeStringVar), patch.object(
+            app.ttk, "Button", FakeButton
+        ), patch.object(app.ttk, "Label", FakeLabel), patch.object(
+            app.threading, "Thread", ImmediateThread
+        ):
+            app.JksApp(root, orchestrator=orchestrator)
+
+        self.assertEqual(root.geometry_value, "560x420")
+        self.assertEqual(root.minsize_value, (420, 320))
+
     def test_orchestrator_builder_uses_ssh_hermes_agent_when_host_is_configured(self):
         from jks import app
         from jks.agent import SshHermesAgentClient
@@ -317,6 +378,7 @@ class AppTests(unittest.TestCase):
 
     def test_ui_maps_orchestrator_state_callback_to_status_text(self):
         from jks import app
+        from jks.agent import AgentTraceEvent
         from jks.expression import TurnState
         from jks.orchestrator import TurnResult
 
@@ -331,8 +393,10 @@ class AppTests(unittest.TestCase):
             status_callback=None,
             display_status_callback=None,
             display_error_callback=None,
+            agent_trace_callback=None,
         ):
             captured["status_callback"] = status_callback
+            captured["agent_trace_callback"] = agent_trace_callback
             return orchestrator
 
         with patch.object(app, "load_config", return_value=sample_config()), patch.object(
@@ -351,6 +415,35 @@ class AppTests(unittest.TestCase):
         self.assertEqual(ui.status.get(), "Thinking")
         captured["status_callback"](TurnState.SPEAKING)
         self.assertEqual(ui.status.get(), "Speaking")
+        self.assertIsNotNone(captured["agent_trace_callback"])
+        captured["agent_trace_callback"](AgentTraceEvent(source="tool", message="terminal exit_code=0"))
+        self.assertIn("tool: terminal exit_code=0", ui.agent_trace.get())
+
+    def test_ui_has_oled_screen_preview_and_updates_from_display_intent(self):
+        from jks import app
+        from jks.display import DisplayIntent
+        from jks.orchestrator import TurnResult
+
+        root = FakeRoot()
+        orchestrator = FakeOrchestrator(
+            result=TurnResult(user_text="hello", agent_text="reply", emotion="happy")
+        )
+        FakeCanvas.created = []
+
+        with patch.object(app.tk, "StringVar", FakeStringVar), patch.object(
+            app.ttk, "Button", FakeButton
+        ), patch.object(app.ttk, "Label", FakeLabel), patch.object(
+            app.tk, "Canvas", FakeCanvas
+        ), patch.object(app.threading, "Thread", ImmediateThread):
+            ui = app.JksApp(root, orchestrator=orchestrator)
+            ui._show_display_preview(DisplayIntent("surprised", "WOW", duration_ms=700, intensity="high"))
+
+        self.assertTrue(FakeCanvas.created)
+        self.assertIn("surprised", ui.display_preview.get())
+        self.assertIn("WOW", ui.display_preview.get())
+        canvas_ops = FakeCanvas.created[0].operations
+        self.assertTrue(any(op[0] == "oval" for op in canvas_ops))
+        self.assertTrue(any(op[0] == "text" and op[2].get("text") == "WOW" for op in canvas_ops))
 
     def test_ui_turn_tracks_full_visible_status_sequence(self):
         from jks import app
@@ -363,6 +456,7 @@ class AppTests(unittest.TestCase):
             status_callback=None,
             display_status_callback=None,
             display_error_callback=None,
+            agent_trace_callback=None,
         ):
             return ProgressOrchestrator(
                 status_callback,
@@ -407,6 +501,7 @@ class AppTests(unittest.TestCase):
             status_callback=None,
             display_status_callback=None,
             display_error_callback=None,
+            agent_trace_callback=None,
         ):
             display_status_callback(
                 "OLED unavailable on /dev/cu.missing; reconnect display and restart if needed."
@@ -442,6 +537,7 @@ class AppTests(unittest.TestCase):
             status_callback=None,
             display_status_callback=None,
             display_error_callback=None,
+            agent_trace_callback=None,
         ):
             captured["display_error_callback"] = display_error_callback
             return orchestrator

@@ -187,6 +187,7 @@ class GuiProbeCliTests(unittest.TestCase):
             tts_token="",
             fish_api_key="",
             fish_tts_model="s2-pro",
+            fish_tts_latency="low",
             tts_voice="warm",
             oled_port="/dev/cu.fake",
             oled_baud=115200,

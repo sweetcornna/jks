@@ -73,6 +73,15 @@ class FakeDisplayPort:
 
 
 class AppProbeCliTests(unittest.TestCase):
+    def test_no_op_player_consumes_stream_without_audio_backend(self):
+        from tools.jks_app_probe import NoOpPlayer
+
+        player = NoOpPlayer()
+        player.play_stream([b"one", b"", b"two"], suffix=".mp3")
+
+        self.assertEqual(player.played, [])
+        self.assertEqual(player.streamed_chunks, [b"one", b"two"])
+
     def test_missing_audio_argument_returns_error_without_loading_config(self):
         from tools.jks_app_probe import main
 
@@ -142,6 +151,9 @@ class AppProbeCliTests(unittest.TestCase):
         )
         self.assertEqual(payload["checks"]["stt"], {"text_length": len("hello agent")})
         self.assertEqual(payload["checks"]["agent"]["text_length"], len("Fake reply to: hello agent"))
+        self.assertEqual(payload["checks"]["agent"]["display_text_length"], len("DONE"))
+        self.assertEqual(payload["checks"]["agent"]["duration_ms"], 1200)
+        self.assertEqual(payload["checks"]["agent"]["intensity"], "normal")
         self.assertEqual(payload["checks"]["playback"], {"played": False})
         self.assertEqual(payload["checks"]["display"]["ack_count"], 5)
         self.assertEqual(payload["checks"]["display"]["missing"], [])

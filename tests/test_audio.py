@@ -157,6 +157,50 @@ class AudioTests(unittest.TestCase):
 
         self.assertEqual(calls, [(["afplay", "/tmp/reply.wav"], True)])
 
+    def test_player_streams_mp3_chunks_to_mpg123_stdin(self):
+        class FakeStdin:
+            def __init__(self):
+                self.writes = []
+                self.closed = False
+
+            def write(self, data):
+                self.writes.append(data)
+
+            def close(self):
+                self.closed = True
+
+        class FakeProcess:
+            def __init__(self):
+                self.stdin = FakeStdin()
+                self.waited = False
+                self.killed = False
+
+            def wait(self):
+                self.waited = True
+                return 0
+
+            def kill(self):
+                self.killed = True
+
+        created = []
+
+        def fake_popen(args, stdin):
+            process = FakeProcess()
+            created.append((args, stdin, process))
+            return process
+
+        player = AudioPlayer(popen=fake_popen)
+
+        player.play_stream([b"mp3-", b"", b"bytes"], suffix=".mp3")
+
+        args, stdin, process = created[0]
+        self.assertEqual(args, ["mpg123", "-q", "-"])
+        self.assertIsNotNone(stdin)
+        self.assertEqual(process.stdin.writes, [b"mp3-", b"bytes"])
+        self.assertTrue(process.stdin.closed)
+        self.assertTrue(process.waited)
+        self.assertFalse(process.killed)
+
 
 if __name__ == "__main__":
     unittest.main()

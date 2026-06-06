@@ -8,6 +8,7 @@ from jks.preflight import analyze_config, redact_secret, redact_url
 def config(**overrides):
     data = {
         "agent_host": "",
+        "agent_mode": "",
         "agent_user": "",
         "agent_auth_method": "",
         "agent_ssh_password": "",
@@ -15,7 +16,7 @@ def config(**overrides):
         "agent_workdir": "/usr/local/lib/hermes-agent",
         "agent_endpoint": "",
         "agent_token": "",
-        "agent_model": "hermes-agent",
+        "agent_model": "gran-agent",
         "stt_provider": "",
         "stt_endpoint": "",
         "stt_token": "",
@@ -25,6 +26,7 @@ def config(**overrides):
         "tts_voice": "default",
         "fish_api_key": "",
         "fish_tts_model": "s2-pro",
+        "fish_tts_latency": "low",
         "oled_port": "/dev/cu.usbmodem5B900048301",
         "oled_baud": 115200,
     }
@@ -92,6 +94,28 @@ class PreflightTests(unittest.TestCase):
         self.assertNotIn("JKS_AGENT_ENDPOINT", summary["missing"])
         self.assertNotIn("JKS_AGENT_TOKEN", summary["missing"])
 
+    def test_local_agent_and_fish_speech_are_ready_without_remote_or_http_endpoint(self):
+        summary = analyze_config(
+            config(
+                agent_mode="local",
+                agent_host="",
+                agent_endpoint="replace-with-agent-endpoint",
+                agent_token="replace-with-agent-token",
+                agent_command="/Users/cornna/project/jks/.local/bin/jksgrantly",
+                agent_workdir="/Users/cornna/project/jks/.local/hermes-agent",
+                stt_provider="fish",
+                tts_provider="fish",
+                fish_api_key="fish-secret",
+            )
+        )
+
+        self.assertTrue(summary["ok"])
+        self.assertTrue(summary["ready_for_real"])
+        self.assertEqual(summary["agent"]["mode"], "local")
+        self.assertEqual(summary["agent"]["host"], "")
+        self.assertNotIn("JKS_AGENT_ENDPOINT", summary["missing"])
+        self.assertNotIn("JKS_AGENT_HOST", summary["missing"])
+
     def test_fish_speech_provider_is_ready_with_api_key_and_default_endpoints(self):
         summary = analyze_config(
             config(
@@ -108,6 +132,7 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(summary["speech"]["mode"], "fish")
         self.assertEqual(summary["speech"]["fish_api_key"], "<redacted:11>")
         self.assertEqual(summary["speech"]["fish_tts_model"], "s2-pro")
+        self.assertEqual(summary["speech"]["fish_tts_latency"], "low")
 
     def test_fish_speech_ignores_unused_http_speech_placeholders(self):
         summary = analyze_config(

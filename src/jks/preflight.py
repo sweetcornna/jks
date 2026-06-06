@@ -89,8 +89,15 @@ def analyze_config(config: AppConfig) -> dict[str, object]:
 
     raw_agent_endpoint = config.agent_endpoint
     raw_agent_host = config.agent_host
+    raw_agent_mode = str(getattr(config, "agent_mode", "")).strip().lower()
+    wants_local_agent = raw_agent_mode == "local"
     wants_ssh_agent = bool(raw_agent_host) and not _is_placeholder(raw_agent_host)
     wants_http_agent = bool(raw_agent_endpoint) and not _is_placeholder(raw_agent_endpoint)
+    agent_command_placeholder = (
+        field_has_placeholder(config.agent_command, "JKS_AGENT_COMMAND")
+        if wants_local_agent
+        else False
+    )
 
     agent_token_placeholder = (
         field_has_placeholder(config.agent_token, "JKS_AGENT_TOKEN") if wants_http_agent else False
@@ -116,6 +123,11 @@ def analyze_config(config: AppConfig) -> dict[str, object]:
         if wants_fish_speech
         else False
     )
+    fish_tts_latency_placeholder = (
+        field_has_placeholder(getattr(config, "fish_tts_latency", ""), "JKS_FISH_TTS_LATENCY")
+        if wants_fish_speech
+        else False
+    )
     tts_voice_placeholder = (
         field_has_placeholder(config.tts_voice, "JKS_TTS_VOICE")
         if wants_fish_speech or wants_http_tts
@@ -127,7 +139,12 @@ def analyze_config(config: AppConfig) -> dict[str, object]:
         if wants_http_agent
         else False
     )
-    if agent_endpoint_ready:
+    if wants_local_agent and config.agent_command and not agent_command_placeholder:
+        agent_mode = "local"
+    elif wants_local_agent:
+        agent_mode = "missing"
+        add_missing("JKS_AGENT_COMMAND")
+    elif agent_endpoint_ready:
         agent_mode = "http"
     elif wants_ssh_agent:
         agent_mode = "ssh"
@@ -150,6 +167,7 @@ def analyze_config(config: AppConfig) -> dict[str, object]:
             and config.fish_api_key
             and not fish_api_key_placeholder
             and not fish_tts_model_placeholder
+            and not fish_tts_latency_placeholder
         ):
             speech_mode = "fish"
         else:
@@ -160,6 +178,8 @@ def analyze_config(config: AppConfig) -> dict[str, object]:
                 add_missing("JKS_TTS_PROVIDER")
             if not config.fish_api_key or fish_api_key_placeholder:
                 add_missing("JKS_FISH_API_KEY")
+            if fish_tts_latency_placeholder:
+                add_missing("JKS_FISH_TTS_LATENCY")
             add_warning("Fish Audio integration requires both speech providers set to fish")
     elif stt_endpoint_ready and tts_endpoint_ready:
         speech_mode = "http"
@@ -184,15 +204,17 @@ def analyze_config(config: AppConfig) -> dict[str, object]:
         add_missing("JKS_OLED_PORT")
 
     ready_for_real = (
-        agent_mode in {"http", "ssh"}
+        agent_mode in {"http", "ssh", "local"}
         and speech_mode in {"http", "fish"}
         and oled_mode == "serial"
         and not agent_token_placeholder
         and not agent_ssh_password_placeholder
+        and not agent_command_placeholder
         and not stt_token_placeholder
         and not tts_token_placeholder
         and not fish_api_key_placeholder
         and not fish_tts_model_placeholder
+        and not fish_tts_latency_placeholder
         and not tts_voice_placeholder
     )
     ok = ready_for_real
@@ -201,6 +223,7 @@ def analyze_config(config: AppConfig) -> dict[str, object]:
         "ready_for_real": ready_for_real,
         "agent": {
             "mode": agent_mode,
+            "agent_mode": getattr(config, "agent_mode", ""),
             "endpoint": redact_url(config.agent_endpoint),
             "host": config.agent_host,
             "user": config.agent_user,
@@ -221,6 +244,7 @@ def analyze_config(config: AppConfig) -> dict[str, object]:
             "tts_token": redact_secret(config.tts_token),
             "fish_api_key": redact_secret(config.fish_api_key),
             "fish_tts_model": config.fish_tts_model,
+            "fish_tts_latency": getattr(config, "fish_tts_latency", "low"),
             "voice": config.tts_voice,
         },
         "oled": {

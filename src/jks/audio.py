@@ -102,8 +102,38 @@ class AudioRecorder:
 
 
 class AudioPlayer:
-    def __init__(self, runner=subprocess.run):
+    def __init__(self, runner=subprocess.run, popen=subprocess.Popen):
         self._runner = runner
+        self._popen = popen
 
     def play(self, audio_path: Path) -> None:
         self._runner(["afplay", str(audio_path)], check=True)
+
+    def play_stream(self, chunks, suffix: str = ".mp3") -> None:
+        if suffix != ".mp3":
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as output:
+                output_path = Path(output.name)
+                for chunk in chunks:
+                    if chunk:
+                        output.write(chunk)
+            self.play(output_path)
+            return None
+
+        process = self._popen(["mpg123", "-q", "-"], stdin=subprocess.PIPE)
+        try:
+            if process.stdin is None:
+                raise RuntimeError("stream player stdin is unavailable")
+            for chunk in chunks:
+                if chunk:
+                    process.stdin.write(chunk)
+            process.stdin.close()
+            returncode = process.wait()
+            if returncode:
+                raise subprocess.CalledProcessError(returncode, ["mpg123", "-q", "-"])
+        except Exception:
+            try:
+                process.kill()
+            except Exception:
+                pass
+            raise
+        return None

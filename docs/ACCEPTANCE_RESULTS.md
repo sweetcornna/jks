@@ -8,8 +8,8 @@ probes were run with secrets supplied through the shell environment only.
 
 ## Automated Gates
 
-- `uv run python -m tools.jks_agent_probe`: `ok:true`; SSH Hermes mode; agent reply text present; display intent present.
-- `uv run python -m tools.jks_config_check`: `ok:true`; `ready_for_real:true`; SSH Hermes + Fish speech + serial OLED.
+- `uv run python -m tools.jks_agent_probe`: `ok:true`; local Hermes / Grantly mode; agent reply text present; display intent present.
+- `uv run python -m tools.jks_config_check`: `ok:true`; `ready_for_real:true`; local Hermes / Grantly + Fish speech + serial OLED.
 - `uv run python -m tools.jks_mic_probe --duration 1 --min-rms 0.0001 --timeout 3`: `ok:true`; non-zero RMS and peak.
 - `uv run python -m tools.jks_contract_probe`: `ok:true`; Hermes Agent and Fish speech contract checks passed.
 - `uv run python -m tools.jks_turn_probe --audio /tmp/jks-real-turn.mp3 --display --require-display-ack --display-ack-timeout 6 --play`: `ok:true`; `server_events:["stt","chat","tts"]`; playback true; OLED ACKs present for listening, thinking, thinking, speaking, and agent expression.

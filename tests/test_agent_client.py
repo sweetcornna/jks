@@ -6,8 +6,12 @@ from unittest.mock import patch
 from jks.agent import (
     AgentProviderError,
     AgentReply,
+    AgentTraceEvent,
     HttpAgentClient,
+    LocalHermesAgentClient,
     SshHermesAgentClient,
+    _trace_events_from_messages,
+    _voice_json_prompt,
     build_agent_client,
     parse_agent_reply,
 )
@@ -43,6 +47,88 @@ class AgentClientTests(unittest.TestCase):
                 intensity="high",
             ),
         )
+
+    def test_parse_structured_reply_preserves_agent_display_sequence(self):
+        sequence = [
+            {
+                "emotion": "thinking",
+                "display_text": "PLAN",
+                "duration_ms": 400,
+                "intensity": "soft",
+            },
+            {
+                "emotion": "happy",
+                "display_text": "DONE",
+                "duration_ms": 900,
+                "intensity": "high",
+            },
+        ]
+
+        reply = parse_agent_reply(
+            {
+                "text": "ok",
+                "display_sequence": sequence,
+            }
+        )
+
+        self.assertEqual(reply.display_sequence, sequence)
+
+    def test_parse_structured_reply_preserves_agent_display_commands(self):
+        commands = [
+            {
+                "cmd": "emotion",
+                "emotion": "thinking",
+                "display_text": "PLAN",
+            },
+            {"cmd": "text", "text": "DONE"},
+        ]
+
+        reply = parse_agent_reply({"text": "ok", "display_commands": commands})
+
+        self.assertEqual(reply.display_commands, commands)
+
+    def test_parse_nested_reply_preserves_agent_display_sequence(self):
+        sequence = [
+            {"emotion": "thinking", "text": "PLAN"},
+            {"emotion": "surprised", "display_text": "WOW"},
+        ]
+
+        reply = parse_agent_reply(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": json.dumps(
+                                {
+                                    "text": "choice answer",
+                                    "display": {
+                                        "emotion": "happy",
+                                        "text": "DONE",
+                                        "display_sequence": sequence,
+                                    },
+                                }
+                            ),
+                        }
+                    }
+                ]
+            }
+        )
+
+        self.assertEqual(
+            reply,
+            AgentReply(
+                text="choice answer",
+                emotion="happy",
+                display_text="DONE",
+                display_sequence=sequence,
+            ),
+        )
+
+    def test_parse_structured_reply_ignores_non_list_display_sequence(self):
+        reply = parse_agent_reply({"text": "ok", "display_sequence": {"emotion": "happy"}})
+
+        self.assertIsNone(reply.display_sequence)
 
     def test_parse_openai_like_choice_message_content(self):
         reply = parse_agent_reply(
@@ -400,14 +486,18 @@ class AgentClientTests(unittest.TestCase):
             reply = client.send_message("hello", "conv-1")
 
         self.assertEqual(reply, AgentReply(text="hermes reply"))
+        messages = post.call_args.kwargs["json"]["messages"]
         self.assertEqual(
             post.call_args.kwargs["json"],
             {
-                "model": "hermes-agent",
-                "messages": [{"role": "user", "content": "hello"}],
+                "model": "gran-agent",
+                "messages": messages,
                 "stream": False,
             },
         )
+        self.assertEqual(messages[0]["role"], "system")
+        self.assertIn("display_sequence", messages[0]["content"])
+        self.assertEqual(messages[1], {"role": "user", "content": "hello"})
         self.assertEqual(post.call_args.kwargs["headers"]["Authorization"], "Bearer api-key")
         self.assertEqual(post.call_args.kwargs["headers"]["X-Hermes-Session-Id"], "conv-1")
 
@@ -511,6 +601,8 @@ class AgentClientTests(unittest.TestCase):
         self.assertNotIn("ssh-secret", " ".join(command))
         self.assertEqual(run.call_args.kwargs["env"]["SSHPASS"], "ssh-secret")
         self.assertEqual(run.call_args.kwargs["timeout"], 12.5)
+        self.assertIn("ControlMaster=auto", command)
+        self.assertIn("ControlPersist=60", command)
         self.assertIn("jks@gran.example.com", command)
         remote_command = command[-1]
         self.assertIn("cd /srv/hermes", remote_command)
@@ -518,6 +610,7 @@ class AgentClientTests(unittest.TestCase):
         self.assertIn("--continue jks-conv-1", remote_command)
         self.assertIn("-z", remote_command)
         self.assertIn("Return only compact JSON", remote_command)
+        self.assertIn("display_sequence", remote_command)
         self.assertEqual(
             reply,
             AgentReply(
@@ -544,6 +637,171 @@ class AgentClientTests(unittest.TestCase):
         self.assertIn("--continue jks-conv-2", command[-1])
         self.assertEqual(reply, AgentReply(text="plain reply"))
 
+    def test_local_hermes_client_invokes_command_without_ssh(self):
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout='{"text":"local reply","emotion":"happy"}',
+            stderr="",
+        )
+
+        with patch("jks.agent.subprocess.run", return_value=completed) as run:
+            client = LocalHermesAgentClient(
+                command="/Users/cornna/project/jks/.local/bin/jksgrantly",
+                workdir="/Users/cornna/project/jks/.local/hermes-agent",
+                model="",
+            )
+            reply = client.send_message("hello", "conv-1")
+
+        command = run.call_args.args[0]
+        self.assertEqual(command[0], "/Users/cornna/project/jks/.local/bin/jksgrantly")
+        self.assertIn("--continue", command)
+        self.assertIn("jks-conv-1", command)
+        self.assertNotIn("ssh", command)
+        self.assertNotIn("--model", command)
+        self.assertEqual(run.call_args.kwargs["cwd"], "/Users/cornna/project/jks/.local/hermes-agent")
+        self.assertEqual(reply, AgentReply(text="local reply", emotion="happy"))
+
+    def test_trace_events_from_hermes_session_messages_summarize_tool_flow(self):
+        seen = set()
+        messages = [
+            {"role": "user", "content": "run a command"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call-1",
+                        "function": {
+                            "name": "terminal",
+                            "arguments": '{"command":"printf hello"}',
+                        },
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "name": "terminal",
+                "content": '{"output":"hello","exit_code":0,"error":null}',
+            },
+            {"role": "assistant", "content": '{"text":"done","emotion":"neutral"}'},
+        ]
+
+        events = list(_trace_events_from_messages(messages, seen))
+
+        self.assertEqual(
+            events,
+            [
+                AgentTraceEvent(source="user", message="prompt accepted"),
+                AgentTraceEvent(source="assistant", message="tool call: terminal"),
+                AgentTraceEvent(source="tool", message="terminal exit_code=0 output=hello"),
+                AgentTraceEvent(source="assistant", message="final response received"),
+            ],
+        )
+        self.assertEqual(seen, {0, 1, 2, 3})
+
+    def test_local_hermes_client_streams_trace_callback_when_enabled(self):
+        class FakePopen:
+            returncode = 0
+
+            def __init__(self, *args, **kwargs):
+                self.args = args
+                self.kwargs = kwargs
+
+            def communicate(self, timeout=None):
+                self.timeout = timeout
+                return ('{"text":"local reply","emotion":"happy"}', "")
+
+            def kill(self):
+                self.killed = True
+
+        events = []
+
+        def fake_watch_session_trace(self, session_name, started_at, trace_callback, stop_event):
+            trace_callback(AgentTraceEvent(source="assistant", message="tool call: terminal"))
+
+        with patch("jks.agent.subprocess.Popen", return_value=FakePopen()) as popen, patch.object(
+            LocalHermesAgentClient,
+            "_watch_session_trace",
+            fake_watch_session_trace,
+        ):
+            client = LocalHermesAgentClient(
+                command="/Users/cornna/project/jks/.local/bin/jksgrantly",
+                workdir="/Users/cornna/project/jks/.local/hermes-agent",
+                model="",
+            )
+            reply = client.send_message("hello", "conv-1", trace_callback=events.append)
+
+        command = popen.call_args.args[0]
+        self.assertEqual(command[0], "/Users/cornna/project/jks/.local/bin/jksgrantly")
+        self.assertIn(AgentTraceEvent(source="process", message="Hermes request started"), events)
+        self.assertIn(AgentTraceEvent(source="assistant", message="tool call: terminal"), events)
+        self.assertIn(AgentTraceEvent(source="process", message="Hermes final response received"), events)
+        self.assertEqual(reply, AgentReply(text="local reply", emotion="happy"))
+
+    def test_local_hermes_client_normalizes_relative_runtime_paths(self):
+        client = LocalHermesAgentClient(
+            command=".local/bin/jksgrantly",
+            workdir=".local/hermes-agent",
+            model="",
+        )
+
+        self.assertTrue(client.command.endswith("/.local/bin/jksgrantly"))
+        self.assertTrue(client.workdir.endswith("/.local/hermes-agent"))
+
+    def test_ssh_hermes_client_passes_configured_model_to_gran_wrapper(self):
+        completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="plain reply", stderr="")
+
+        with patch("jks.agent.subprocess.run", return_value=completed) as run:
+            client = SshHermesAgentClient(host="gran.local", user="", model="gran-agent")
+            client.send_message("hello", "conv-1")
+
+        self.assertIn("--model gran-agent", run.call_args.args[0][-1])
+
+    def test_build_agent_client_does_not_override_model_for_direct_grantly_wrapper(self):
+        class Config:
+            agent_endpoint = ""
+            agent_token = ""
+            agent_model = "gran-agent"
+            agent_host = "gran.example.com"
+            agent_user = "jks"
+            agent_ssh_password = ""
+            agent_command = "/root/.local/bin/jksgrantly"
+            agent_workdir = "/usr/local/lib/hermes-agent"
+
+        client = build_agent_client(Config(), timeout=7.0)
+
+        self.assertIsInstance(client, SshHermesAgentClient)
+        self.assertEqual(client.command, "/root/.local/bin/jksgrantly")
+        self.assertEqual(client.model, "")
+
+    def test_build_agent_client_uses_local_hermes_when_agent_mode_is_local(self):
+        class Config:
+            agent_mode = "local"
+            agent_endpoint = "replace-with-agent-endpoint"
+            agent_token = "replace-with-agent-token"
+            agent_model = "gran-agent"
+            agent_host = ""
+            agent_user = ""
+            agent_ssh_password = ""
+            agent_command = "/Users/cornna/project/jks/.local/bin/jksgrantly"
+            agent_workdir = "/Users/cornna/project/jks/.local/hermes-agent"
+
+        client = build_agent_client(Config(), timeout=7.0)
+
+        self.assertIsInstance(client, LocalHermesAgentClient)
+        self.assertEqual(client.command, "/Users/cornna/project/jks/.local/bin/jksgrantly")
+        self.assertEqual(client.workdir, "/Users/cornna/project/jks/.local/hermes-agent")
+        self.assertEqual(client.timeout, 7.0)
+        self.assertEqual(client.model, "")
+
+    def test_voice_json_prompt_allows_agent_controlled_display_sequence(self):
+        prompt = _voice_json_prompt("hello")
+
+        self.assertIn("display_sequence", prompt)
+        self.assertIn("up to 4", prompt)
+        self.assertIn("emotion, display_text, duration_ms, intensity", prompt)
+
     def test_ssh_hermes_client_wraps_subprocess_failures(self):
         with patch(
             "jks.agent.subprocess.run",
@@ -552,6 +810,20 @@ class AgentClientTests(unittest.TestCase):
             client = SshHermesAgentClient(host="gran.local", password="ssh-secret")
 
             with self.assertRaisesRegex(AgentProviderError, "hermes ssh request failed"):
+                client.send_message("hello", "conv-1")
+
+    def test_ssh_hermes_client_rejects_provider_error_text(self):
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="API call failed after 2 retries: HTTP 503: Service temporarily unavailable",
+            stderr="",
+        )
+
+        with patch("jks.agent.subprocess.run", return_value=completed):
+            client = SshHermesAgentClient(host="gran.local", user="")
+
+            with self.assertRaisesRegex(AgentProviderError, "agent provider failure"):
                 client.send_message("hello", "conv-1")
 
     def test_ssh_hermes_client_retries_transient_subprocess_failure(self):
@@ -574,7 +846,7 @@ class AgentClientTests(unittest.TestCase):
         class Config:
             agent_endpoint = ""
             agent_token = ""
-            agent_model = "hermes-agent"
+            agent_model = "gran-agent"
             agent_host = "gran.example.com"
             agent_user = "jks"
             agent_ssh_password = ""
@@ -585,6 +857,7 @@ class AgentClientTests(unittest.TestCase):
 
         self.assertIsInstance(client, SshHermesAgentClient)
         self.assertGreaterEqual(client.timeout, 90.0)
+        self.assertEqual(client.model, "gran-agent")
 
     def test_build_agent_client_prefers_http_endpoint_over_ssh_host(self):
         class Config:
@@ -607,7 +880,7 @@ class AgentClientTests(unittest.TestCase):
         class Config:
             agent_endpoint = "replace-with-agent-endpoint"
             agent_token = "replace-with-agent-token"
-            agent_model = "hermes-agent"
+            agent_model = "gran-agent"
             agent_host = "gran.example.com"
             agent_user = "jks"
             agent_ssh_password = "ssh-secret"
@@ -619,6 +892,7 @@ class AgentClientTests(unittest.TestCase):
         self.assertIsInstance(client, SshHermesAgentClient)
         self.assertEqual(client.timeout, 7.0)
         self.assertEqual(client.host, "gran.example.com")
+        self.assertEqual(client.model, "gran-agent")
 
     def test_http_client_rejects_empty_response_text(self):
         class FakeResponse:

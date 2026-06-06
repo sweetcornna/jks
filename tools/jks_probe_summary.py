@@ -56,6 +56,7 @@ def summarize_preflight(preflight: Mapping[str, object]) -> dict[str, object]:
             "tts_token_present": bool(speech.get("tts_token")),
             "fish_api_key_present": bool(speech.get("fish_api_key")),
             "fish_tts_model": _string(speech.get("fish_tts_model")),
+            "fish_tts_latency": _string(speech.get("fish_tts_latency")),
             "voice_present": bool(voice),
             "voice_custom": bool(voice and voice != "default"),
         },
@@ -72,15 +73,20 @@ def summarize_preflight(preflight: Mapping[str, object]) -> dict[str, object]:
 
 
 def summarize_agent_config(config) -> dict[str, object]:
+    configured_mode = _string(getattr(config, "agent_mode", "")).strip().lower()
     return {
-        "mode": "http"
-        if getattr(config, "agent_endpoint", "")
-        and not _is_placeholder(str(getattr(config, "agent_endpoint", "")))
+        "mode": configured_mode
+        if configured_mode == "local"
         else (
-            "ssh"
-            if getattr(config, "agent_host", "")
-            and not _is_placeholder(str(getattr(config, "agent_host", "")))
-            else "missing"
+            "http"
+            if getattr(config, "agent_endpoint", "")
+            and not _is_placeholder(str(getattr(config, "agent_endpoint", "")))
+            else (
+                "ssh"
+                if getattr(config, "agent_host", "")
+                and not _is_placeholder(str(getattr(config, "agent_host", "")))
+                else "missing"
+            )
         ),
         "endpoint_present": bool(getattr(config, "agent_endpoint", "")),
         "host_present": bool(getattr(config, "agent_host", "")),

@@ -93,6 +93,30 @@ class ConfigCheckCliTests(unittest.TestCase):
         self.assertEqual(payload["oled"]["mode"], "serial")
         self.assertTrue(payload["oled"]["port_present"])
 
+    def test_main_does_not_print_local_agent_runtime_paths_by_default(self):
+        env = {
+            "JKS_AGENT_MODE": "local",
+            "JKS_AGENT_COMMAND": "/private/jks/.local/bin/jksgrantly",
+            "JKS_AGENT_WORKDIR": "/private/jks/.local/hermes-agent",
+            "JKS_STT_PROVIDER": "fish",
+            "JKS_TTS_PROVIDER": "fish",
+            "JKS_FISH_API_KEY": "fish-secret",
+            "JKS_OLED_PORT": "/dev/cu.private",
+        }
+        output = io.StringIO()
+
+        with clean_cwd(), patch.dict(os.environ, env, clear=True):
+            exit_code = main([], stdout=output)
+
+        text = output.getvalue()
+        payload = json.loads(text)
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["agent"]["mode"], "local")
+        self.assertFalse(payload["agent"]["host_present"])
+        self.assertNotIn("/private/jks", text)
+        self.assertNotIn("fish-secret", text)
+
     def test_main_returns_one_when_required_agent_endpoint_is_missing(self):
         output = io.StringIO()
 

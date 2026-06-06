@@ -25,9 +25,11 @@ class AppConfig:
     tts_token: str
     fish_api_key: str
     fish_tts_model: str
+    fish_tts_latency: str
     tts_voice: str
     oled_port: str
     oled_baud: int
+    agent_mode: str = ""
 
 
 def _int_setting(settings: Mapping[str, str], name: str, default: int) -> int:
@@ -88,7 +90,7 @@ def load_config(env_file: Optional[Union[os.PathLike[str], str]] = ".env") -> Ap
         agent_workdir=settings.get("JKS_AGENT_WORKDIR", "/usr/local/lib/hermes-agent"),
         agent_endpoint=settings.get("JKS_AGENT_ENDPOINT", ""),
         agent_token=settings.get("JKS_AGENT_TOKEN", ""),
-        agent_model=settings.get("JKS_AGENT_MODEL", "hermes-agent"),
+        agent_model=settings.get("JKS_AGENT_MODEL", "gran-agent"),
         stt_provider=settings.get("JKS_STT_PROVIDER", ""),
         stt_endpoint=settings.get("JKS_STT_ENDPOINT", ""),
         stt_token=settings.get("JKS_STT_TOKEN", ""),
@@ -100,7 +102,9 @@ def load_config(env_file: Optional[Union[os.PathLike[str], str]] = ".env") -> Ap
             settings.get("FISH_API_KEY", settings.get("FISH_AUDIO_API_KEY", "")),
         ),
         fish_tts_model=settings.get("JKS_FISH_TTS_MODEL", "s2-pro"),
+        fish_tts_latency=settings.get("JKS_FISH_TTS_LATENCY", "low"),
         tts_voice=settings.get("JKS_TTS_VOICE", "default"),
         oled_port=settings.get("JKS_OLED_PORT", "/dev/cu.usbmodem5B900048301"),
         oled_baud=_int_setting(settings, "JKS_OLED_BAUD", 115200),
+        agent_mode=settings.get("JKS_AGENT_MODE", ""),
     )

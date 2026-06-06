@@ -29,6 +29,23 @@ class MicroPythonFirmwareTests(unittest.TestCase):
                 self.assertGreaterEqual(len(frames[emotion]), 2)
                 self.assertTrue(all(len(frame) == 6 for frame in frames[emotion]))
 
+    def test_core_firmware_animations_have_lively_motion_offsets(self):
+        frames = _literal_assignment("FACE_FRAMES")
+
+        for emotion in ("happy", "thinking", "speaking", "listening", "surprised"):
+            with self.subTest(emotion=emotion):
+                emotion_frames = frames[emotion]
+                self.assertGreaterEqual(len(emotion_frames), 4)
+                self.assertTrue(any(frame[4] != 0 or frame[5] != 0 for frame in emotion_frames))
+                self.assertGreaterEqual(len({frame[3] for frame in emotion_frames}), 2)
+
+    def test_firmware_speaking_animation_uses_multiple_mouth_shapes(self):
+        frames = _literal_assignment("FACE_FRAMES")
+
+        self.assertGreaterEqual(len({frame[2] for frame in frames["speaking"]}), 3)
+        self.assertTrue(any(frame[4] < 0 for frame in frames["error"]))
+        self.assertTrue(any(frame[4] > 0 for frame in frames["error"]))
+
     def test_firmware_accepts_full_display_intent_fields(self):
         source = FIRMWARE.read_text()
 
