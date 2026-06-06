@@ -95,11 +95,17 @@ class JksApp:
         except Exception as exc:
             self.root.after(0, lambda exc=exc: self._finish_error(exc))
             return
-        self.root.after(0, lambda: self._finish_success(result.user_text, result.agent_text))
+        self.root.after(
+            0,
+            lambda: self._finish_success(result.user_text, result.agent_text, result.audio_error),
+        )
 
-    def _finish_success(self, user_text: str, agent_text: str) -> None:
+    def _finish_success(self, user_text: str, agent_text: str, audio_error: str = "") -> None:
         self._recording = False
-        self.status.set("Ready")
+        if audio_error:
+            self.status.set(f"Voice output failed: {audio_error}")
+        else:
+            self.status.set("Ready")
         self.transcript.set(f"You: {user_text}\nAgent: {agent_text}")
         self.button.configure(text="Speak", state="normal")
 

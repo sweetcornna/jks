@@ -319,13 +319,11 @@ class OrchestratorTests(unittest.TestCase):
         self.assertEqual(result.emotion, "happy")
         self.assertEqual(display.intents[-1], DisplayIntent(emotion="happy", text="DONE"))
 
-    def test_speech_agent_and_player_failures_show_error_and_reraise(self):
+    def test_recorder_stt_and_agent_failures_show_error_and_reraise(self):
         cases = [
             {"name": "recorder", "recorder": FakeRecorder(fail=True), "speech": FakeSpeech(), "agent": FakeAgent(), "player": FakePlayer()},
             {"name": "stt", "speech": FakeSpeech(fail_transcribe=True), "agent": FakeAgent(), "player": FakePlayer()},
-            {"name": "tts", "speech": FakeSpeech(fail_synthesize=True), "agent": FakeAgent(), "player": FakePlayer()},
             {"name": "agent", "speech": FakeSpeech(), "agent": FakeAgent(fail=True), "player": FakePlayer()},
-            {"name": "player", "speech": FakeSpeech(), "agent": FakeAgent(), "player": FakePlayer(fail=True)},
         ]
 
         for case in cases:
@@ -344,6 +342,45 @@ class OrchestratorTests(unittest.TestCase):
                     orchestrator.run_voice_turn()
 
                 self.assertEqual(display.intents[-1], DisplayIntent(emotion="error", text="OOPS"))
+
+    def test_tts_and_player_failures_preserve_agent_text_as_silent_fallback(self):
+        cases = [
+            {
+                "name": "tts",
+                "speech": FakeSpeech(fail_synthesize=True),
+                "player": FakePlayer(),
+                "expected_error": "tts failed",
+                "expected_played": [],
+            },
+            {
+                "name": "player",
+                "speech": FakeSpeech(),
+                "player": FakePlayer(fail=True),
+                "expected_error": "player failed",
+                "expected_played": [Path("/tmp/jks-test-reply.wav")],
+            },
+        ]
+
+        for case in cases:
+            with self.subTest(case=case["name"]):
+                display = FakeDisplay()
+                orchestrator = ConversationOrchestrator(
+                    recorder=FakeRecorder(),
+                    speech=case["speech"],
+                    agent=FakeAgent(reply=AgentReply(text="reply", emotion="happy")),
+                    display=display,
+                    player=case["player"],
+                    voice="warm",
+                )
+
+                result = orchestrator.run_voice_turn()
+
+                self.assertEqual(result.agent_text, "reply")
+                self.assertEqual(result.audio_error, case["expected_error"])
+                self.assertEqual(case["player"].played, case["expected_played"])
+                self.assertEqual(display.intents[-1], DisplayIntent(emotion="happy", text="DONE"))
+                self.assertNotIn(DisplayIntent(emotion="error", text="OOPS"), display.intents)
+                self.assertEqual(orchestrator.state, TurnState.IDLE)
 
     def test_display_failures_do_not_interrupt_successful_voice_turn(self):
         player = FakePlayer()

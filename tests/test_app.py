@@ -192,6 +192,36 @@ class AppTests(unittest.TestCase):
         self.assertEqual(ui.button.options["state"], "normal")
         self.assertEqual(ui.button.text, "Speak")
 
+    def test_ui_audio_degraded_turn_preserves_transcript_and_reports_status(self):
+        from jks import app
+        from jks.orchestrator import TurnResult
+
+        root = FakeRoot()
+        orchestrator = FakeOrchestrator(
+            result=TurnResult(
+                user_text="hello",
+                agent_text="reply",
+                emotion="happy",
+                audio_error="tts failed",
+            )
+        )
+
+        with patch.object(app.tk, "StringVar", FakeStringVar), patch.object(
+            app.ttk, "Button", FakeButton
+        ), patch.object(app.ttk, "Label", FakeLabel), patch.object(
+            app.threading, "Thread", ImmediateThread
+        ):
+            ui = app.JksApp(root, orchestrator=orchestrator)
+            ui.start_turn()
+            ui.start_turn()
+
+        self.assertIn("Voice output failed", ui.status.get())
+        self.assertIn("tts failed", ui.status.get())
+        self.assertIn("You: hello", ui.transcript.get())
+        self.assertIn("Agent: reply", ui.transcript.get())
+        self.assertEqual(ui.button.options["state"], "normal")
+        self.assertEqual(ui.button.text, "Speak")
+
     def test_ui_first_click_starts_recording_and_waits_for_stop_click(self):
         from jks import app
         from jks.orchestrator import TurnResult

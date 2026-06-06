@@ -12,6 +12,7 @@ class TurnResult:
     user_text: str
     agent_text: str
     emotion: str
+    audio_error: str = ""
 
 
 class ConversationOrchestrator:
@@ -66,8 +67,12 @@ class ConversationOrchestrator:
         reply: AgentReply = self.agent.send_message(user_text, self.conversation_id)
 
         self._set_state(TurnState.SPEAKING)
-        audio_reply = self.speech.synthesize(reply.text, self.voice)
-        self.player.play(audio_reply)
+        audio_error = ""
+        try:
+            audio_reply = self.speech.synthesize(reply.text, self.voice)
+            self.player.play(audio_reply)
+        except Exception as exc:
+            audio_error = str(exc)
 
         final_intent = self.expression.intent_from_agent(
             {
@@ -83,6 +88,7 @@ class ConversationOrchestrator:
             user_text=user_text,
             agent_text=reply.text,
             emotion=final_intent.emotion,
+            audio_error=audio_error,
         )
 
     def _show_state(self, state: TurnState) -> None:
