@@ -1,18 +1,31 @@
 import io
 import json
 import os
+import tempfile
 import unittest
+from contextlib import contextmanager
 from unittest.mock import patch
 
 from tools.jks_contract_probe import main
 from tools.jks_fake_services import start_fake_services
 
 
+@contextmanager
+def clean_cwd():
+    old_cwd = os.getcwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        os.chdir(tmp)
+        try:
+            yield
+        finally:
+            os.chdir(old_cwd)
+
+
 class ContractProbeTests(unittest.TestCase):
     def test_missing_config_returns_redacted_preflight_failure_without_probing(self):
         stdout = io.StringIO()
 
-        with patch.dict(os.environ, {}, clear=True):
+        with clean_cwd(), patch.dict(os.environ, {}, clear=True):
             exit_code = main([], stdout=stdout)
 
         payload = json.loads(stdout.getvalue())
@@ -32,7 +45,7 @@ class ContractProbeTests(unittest.TestCase):
                 "JKS_TTS_ENDPOINT": server.base_url + "/tts?api_key=secret",
             }
 
-            with patch.dict(os.environ, env, clear=True):
+            with clean_cwd(), patch.dict(os.environ, env, clear=True):
                 exit_code = main([], stdout=stdout)
         finally:
             server.stop()

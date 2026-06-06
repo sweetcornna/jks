@@ -1,10 +1,24 @@
 import io
 import json
 import os
+import tempfile
 import unittest
+from contextlib import contextmanager
+from pathlib import Path
 from unittest.mock import patch
 
 from tools.jks_config_check import main
+
+
+@contextmanager
+def clean_cwd():
+    old_cwd = os.getcwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        os.chdir(tmp)
+        try:
+            yield
+        finally:
+            os.chdir(old_cwd)
 
 
 class ConfigCheckCliTests(unittest.TestCase):
@@ -17,7 +31,7 @@ class ConfigCheckCliTests(unittest.TestCase):
         }
         output = io.StringIO()
 
-        with patch.dict(os.environ, env, clear=True):
+        with clean_cwd(), patch.dict(os.environ, env, clear=True):
             exit_code = main([], stdout=output)
 
         self.assertEqual(exit_code, 0)
@@ -32,7 +46,7 @@ class ConfigCheckCliTests(unittest.TestCase):
     def test_main_returns_one_when_required_agent_endpoint_is_missing(self):
         output = io.StringIO()
 
-        with patch.dict(os.environ, {}, clear=True):
+        with clean_cwd(), patch.dict(os.environ, {}, clear=True):
             exit_code = main([], stdout=output)
 
         self.assertEqual(exit_code, 1)
@@ -43,7 +57,7 @@ class ConfigCheckCliTests(unittest.TestCase):
     def test_main_returns_one_when_agent_endpoint_has_fake_speech(self):
         output = io.StringIO()
 
-        with patch.dict(
+        with clean_cwd(), patch.dict(
             os.environ,
             {"JKS_AGENT_ENDPOINT": "http://127.0.0.1:8787/chat"},
             clear=True,
@@ -58,10 +72,30 @@ class ConfigCheckCliTests(unittest.TestCase):
         self.assertIn("JKS_STT_ENDPOINT", payload["missing"])
         self.assertIn("JKS_TTS_ENDPOINT", payload["missing"])
 
+    def test_main_returns_one_when_dotenv_contains_placeholders(self):
+        output = io.StringIO()
+
+        with clean_cwd(), patch.dict(os.environ, {}, clear=True):
+            Path(".env").write_text(
+                "\n".join(
+                    [
+                        "JKS_AGENT_ENDPOINT=replace-with-agent-endpoint",
+                        "JKS_STT_ENDPOINT=replace-with-stt-endpoint",
+                        "JKS_TTS_ENDPOINT=replace-with-tts-endpoint",
+                    ]
+                )
+            )
+            exit_code = main([], stdout=output)
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(exit_code, 1)
+        self.assertFalse(payload["ready_for_real"])
+        self.assertIn("placeholder values must be replaced before real integration", payload["warnings"])
+
     def test_main_prints_json_when_config_loading_fails(self):
         output = io.StringIO()
 
-        with patch.dict(os.environ, {"JKS_OLED_BAUD": "fast"}, clear=True):
+        with clean_cwd(), patch.dict(os.environ, {"JKS_OLED_BAUD": "fast"}, clear=True):
             exit_code = main([], stdout=output)
 
         self.assertEqual(exit_code, 1)

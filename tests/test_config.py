@@ -1,5 +1,7 @@
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from jks.config import AppConfig, load_config
@@ -8,7 +10,7 @@ from jks.config import AppConfig, load_config
 class ConfigTests(unittest.TestCase):
     def test_loads_defaults(self):
         with patch.dict(os.environ, {}, clear=True):
-            config = load_config()
+            config = load_config(env_file=None)
 
         self.assertIsInstance(config, AppConfig)
         self.assertEqual(getattr(config, "agent_host", None), "")
@@ -40,7 +42,7 @@ class ConfigTests(unittest.TestCase):
             "JKS_OLED_BAUD": "57600",
         }
         with patch.dict(os.environ, env, clear=True):
-            config = load_config()
+            config = load_config(env_file=None)
 
         self.assertEqual(getattr(config, "agent_host", None), "gran.example.com")
         self.assertEqual(getattr(config, "agent_user", None), "jks")
@@ -55,10 +57,60 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.oled_port, "/dev/cu.test")
         self.assertEqual(config.oled_baud, 57600)
 
+    def test_loads_settings_from_dotenv_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env_file = Path(tmp) / ".env"
+            env_file.write_text(
+                "\n".join(
+                    [
+                        "# local JKS config",
+                        'JKS_AGENT_ENDPOINT="http://127.0.0.1:8787/chat"',
+                        "export JKS_STT_ENDPOINT='http://127.0.0.1:8788/stt'",
+                        "JKS_TTS_ENDPOINT=http://127.0.0.1:8788/tts",
+                        "JKS_TTS_VOICE=warm",
+                        "JKS_OLED_BAUD=57600",
+                    ]
+                )
+            )
+
+            with patch.dict(os.environ, {}, clear=True):
+                config = load_config(env_file=env_file)
+
+        self.assertEqual(config.agent_endpoint, "http://127.0.0.1:8787/chat")
+        self.assertEqual(config.stt_endpoint, "http://127.0.0.1:8788/stt")
+        self.assertEqual(config.tts_endpoint, "http://127.0.0.1:8788/tts")
+        self.assertEqual(config.tts_voice, "warm")
+        self.assertEqual(config.oled_baud, 57600)
+
+    def test_environment_overrides_dotenv_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env_file = Path(tmp) / ".env"
+            env_file.write_text(
+                "\n".join(
+                    [
+                        "JKS_AGENT_ENDPOINT=http://file-agent/chat",
+                        "JKS_TTS_VOICE=file-voice",
+                    ]
+                )
+            )
+
+            with patch.dict(
+                os.environ,
+                {
+                    "JKS_AGENT_ENDPOINT": "http://env-agent/chat",
+                    "JKS_TTS_VOICE": "env-voice",
+                },
+                clear=True,
+            ):
+                config = load_config(env_file=env_file)
+
+        self.assertEqual(config.agent_endpoint, "http://env-agent/chat")
+        self.assertEqual(config.tts_voice, "env-voice")
+
     def test_invalid_baud_fails_cleanly(self):
         with patch.dict(os.environ, {"JKS_OLED_BAUD": "fast"}, clear=True):
             with self.assertRaises(ValueError):
-                load_config()
+                load_config(env_file=None)
 
 
 if __name__ == "__main__":

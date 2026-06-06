@@ -82,6 +82,64 @@ class PreflightTests(unittest.TestCase):
         self.assertIn("JKS_STT_ENDPOINT", summary["missing"])
         self.assertIn("JKS_TTS_ENDPOINT", summary["missing"])
 
+    def test_placeholder_endpoints_are_not_ready(self):
+        summary = analyze_config(
+            config(
+                agent_endpoint="replace-with-agent-endpoint",
+                stt_endpoint="replace-with-stt-endpoint",
+                tts_endpoint="replace-with-tts-endpoint",
+            )
+        )
+
+        self.assertFalse(summary["ok"])
+        self.assertFalse(summary["ready_for_real"])
+        self.assertEqual(summary["agent"]["mode"], "missing")
+        self.assertEqual(summary["speech"]["mode"], "partial")
+        self.assertIn("JKS_AGENT_ENDPOINT", summary["missing"])
+        self.assertIn("JKS_STT_ENDPOINT", summary["missing"])
+        self.assertIn("JKS_TTS_ENDPOINT", summary["missing"])
+        self.assertIn("placeholder values must be replaced before real integration", summary["warnings"])
+
+    def test_malformed_urls_are_not_ready(self):
+        summary = analyze_config(
+            config(
+                agent_endpoint="not-a-url",
+                stt_endpoint="ftp://speech.local/stt",
+                tts_endpoint="http://",
+            )
+        )
+
+        self.assertFalse(summary["ok"])
+        self.assertFalse(summary["ready_for_real"])
+        self.assertEqual(summary["agent"]["mode"], "missing")
+        self.assertEqual(summary["speech"]["mode"], "partial")
+        self.assertIn("JKS_AGENT_ENDPOINT", summary["missing"])
+        self.assertIn("JKS_STT_ENDPOINT", summary["missing"])
+        self.assertIn("JKS_TTS_ENDPOINT", summary["missing"])
+        self.assertIn("endpoint values must be valid http(s) URLs", summary["warnings"])
+
+    def test_placeholder_runtime_fields_are_not_ready(self):
+        summary = analyze_config(
+            config(
+                agent_endpoint="http://agent.local/chat",
+                agent_token="replace-with-agent-token",
+                stt_endpoint="http://speech.local/stt",
+                tts_endpoint="http://speech.local/tts",
+                tts_voice="replace-with-tts-voice",
+                oled_port="replace-with-oled-port",
+            )
+        )
+
+        self.assertFalse(summary["ok"])
+        self.assertFalse(summary["ready_for_real"])
+        self.assertEqual(summary["agent"]["mode"], "http")
+        self.assertEqual(summary["speech"]["mode"], "http")
+        self.assertEqual(summary["oled"]["mode"], "disabled")
+        self.assertIn("JKS_AGENT_TOKEN", summary["missing"])
+        self.assertIn("JKS_TTS_VOICE", summary["missing"])
+        self.assertIn("JKS_OLED_PORT", summary["missing"])
+        self.assertIn("placeholder values must be replaced before real integration", summary["warnings"])
+
     def test_partial_speech_config_reports_missing_pair(self):
         cases = [
             ({"stt_endpoint": "http://stt.local"}, "JKS_TTS_ENDPOINT"),

@@ -30,6 +30,9 @@ cp .env.example .env
 ```
 
 Fill `.env` locally. Do not commit secrets.
+The app and CLI tools load `.env` from the current working directory by default;
+shell environment variables override file values. Placeholder values such as
+`replace-with-*` intentionally fail readiness checks.
 
 Required real-service values:
 
@@ -43,6 +46,12 @@ JKS_OLED_BAUD
 ```
 
 `JKS_AGENT_TOKEN` is optional when the endpoint does not require bearer auth.
+
+Run the desktop controller:
+
+```bash
+uv run jks
+```
 
 ## Verification
 
