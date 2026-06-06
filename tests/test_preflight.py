@@ -1,0 +1,97 @@
+import json
+import unittest
+
+from jks.config import AppConfig
+from jks.preflight import analyze_config, redact_secret, redact_url
+
+
+def config(**overrides):
+    data = {
+        "agent_host": "",
+        "agent_user": "",
+        "agent_auth_method": "",
+        "agent_endpoint": "",
+        "agent_token": "",
+        "stt_provider": "",
+        "stt_endpoint": "",
+        "tts_provider": "",
+        "tts_endpoint": "",
+        "tts_voice": "default",
+        "oled_port": "/dev/cu.usbmodem5B900048301",
+        "oled_baud": 115200,
+    }
+    data.update(overrides)
+    return AppConfig(**data)
+
+
+class PreflightTests(unittest.TestCase):
+    def test_missing_agent_is_not_ready_but_fake_speech_is_allowed(self):
+        summary = analyze_config(config())
+
+        self.assertFalse(summary["ok"])
+        self.assertEqual(summary["agent"]["mode"], "missing")
+        self.assertEqual(summary["speech"]["mode"], "fake")
+        self.assertEqual(summary["oled"]["mode"], "serial")
+        self.assertIn("JKS_AGENT_ENDPOINT", summary["missing"])
+
+    def test_http_agent_and_http_speech_are_ready(self):
+        summary = analyze_config(
+            config(
+                agent_endpoint="http://127.0.0.1:8787/chat",
+                agent_token="secret-token",
+                stt_provider="http",
+                stt_endpoint="http://127.0.0.1:8788/stt",
+                tts_provider="http",
+                tts_endpoint="http://127.0.0.1:8788/tts",
+                tts_voice="warm",
+            )
+        )
+
+        self.assertTrue(summary["ok"])
+        self.assertEqual(summary["agent"]["mode"], "http")
+        self.assertEqual(summary["agent"]["token"], "<redacted:12>")
+        self.assertEqual(summary["speech"]["mode"], "http")
+        self.assertEqual(summary["speech"]["voice"], "warm")
+
+    def test_partial_speech_config_reports_missing_pair(self):
+        cases = [
+            ({"stt_endpoint": "http://stt.local"}, "JKS_TTS_ENDPOINT"),
+            ({"tts_endpoint": "http://tts.local"}, "JKS_STT_ENDPOINT"),
+        ]
+
+        for overrides, missing_name in cases:
+            with self.subTest(missing_name=missing_name):
+                summary = analyze_config(
+                    config(agent_endpoint="http://agent.local/chat", **overrides)
+                )
+
+                self.assertFalse(summary["ok"])
+                self.assertEqual(summary["speech"]["mode"], "partial")
+                self.assertIn(missing_name, summary["missing"])
+                self.assertIn(
+                    "JKS_STT_ENDPOINT and JKS_TTS_ENDPOINT must be configured together",
+                    summary["warnings"],
+                )
+
+    def test_analyze_config_returns_json_safe_dict(self):
+        summary = analyze_config(config(agent_endpoint="http://agent.local/chat"))
+
+        self.assertIsInstance(summary, dict)
+        json.dumps(summary)
+
+    def test_redact_secret_never_returns_secret_value(self):
+        self.assertEqual(redact_secret(""), "")
+        self.assertEqual(redact_secret("abc"), "<redacted:3>")
+        self.assertEqual(redact_secret("very-secret-token"), "<redacted:17>")
+
+    def test_redact_url_removes_userinfo_and_query_values(self):
+        self.assertEqual(redact_url(""), "")
+        self.assertEqual(
+            redact_url("https://user:pass@example.com/chat?api_key=secret&mode=test"),
+            "https://example.com/chat?api_key=<redacted>&mode=<redacted>",
+        )
+        self.assertEqual(redact_url("http://127.0.0.1:8787/chat"), "http://127.0.0.1:8787/chat")
+
+
+if __name__ == "__main__":
+    unittest.main()
